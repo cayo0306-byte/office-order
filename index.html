@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -19,53 +20,85 @@
         .loading-spinner { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-        /* --- 列印專用樣式 --- */
+        /* --- 列印專用樣式修正 --- */
         @media print {
-            header, button, .no-print, input, .bg-slate-50, .fixed {
+            /* 隱藏所有不需要列印的元素 */
+            header, 
+            button, 
+            .no-print, 
+            input, 
+            .fixed,
+            nav {
                 display: none !important;
             }
+            
+            /* 確保主體可見 */
             body {
                 background: white !important;
+                color: black !important;
                 padding: 0 !important;
                 margin: 0 !important;
+                display: block !important;
             }
-            main {
-                max-width: 100% !important;
-                padding: 0 !important;
+            
+            #root, main {
+                display: block !important;
+                width: 100% !important;
                 margin: 0 !important;
+                padding: 0 !important;
             }
+
             .print-only {
                 display: block !important;
             }
+
             .printable-area {
                 display: block !important;
                 width: 100% !important;
             }
+
+            /* 調整卡片在列印時的佈局 */
             .card-grid {
-                display: grid !important;
-                grid-template-cols: repeat(4, 1fr) !important;
+                display: flex !important;
+                flex-wrap: wrap !important;
                 gap: 10px !important;
                 margin-bottom: 20px !important;
             }
+            
             .card-grid > div {
+                flex: 1 !important;
+                min-width: 20% !important;
                 border: 1px solid #000 !important;
                 padding: 10px !important;
                 box-shadow: none !important;
-                page-break-inside: avoid;
+                background: white !important;
             }
+
+            /* 表格邊框強化 */
             table {
                 border-collapse: collapse !important;
                 width: 100% !important;
+                margin-top: 10px !important;
             }
+            
             th, td {
                 border: 1px solid #000 !important;
                 padding: 8px !important;
+                text-align: left !important;
                 color: black !important;
             }
-            .text-orange-600, .text-teal-600, .text-indigo-600, .text-slate-500 {
+
+            /* 強制移除背景色 */
+            .bg-slate-50, .bg-white, .bg-indigo-600 {
+                background-color: transparent !important;
                 color: black !important;
             }
+            
+            /* 分頁設定：防止表格被截斷 */
+            tr { page-break-inside: avoid; }
+            h1, h2, h3, h4 { page-break-after: avoid; }
         }
+        
         .print-only { display: none; }
     </style>
 </head>
@@ -415,11 +448,11 @@
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 card-grid">
                                             <div className="bg-white p-6 rounded-3xl border shadow-sm">
-                                                <h4 className="font-black mb-4 text-orange-600 flex items-center gap-2"><Icon name="Utensils" size={18}/> 便當清單統計</h4>
+                                                <h4 className="font-black mb-4 text-orange-600 flex items-center gap-2"><Icon name="Utensils" size={18}/> 便當品項匯總</h4>
                                                 {Object.entries(stats.bc).map(([n,c]) => <div key={n} className="flex justify-between py-2 border-b border-slate-100 text-sm font-bold"><span>{n}</span><span>{c} 份</span></div>)}
                                             </div>
                                             <div className="bg-white p-6 rounded-3xl border shadow-sm">
-                                                <h4 className="font-black mb-4 text-teal-600 flex items-center gap-2"><Icon name="Coffee" size={18}/> 飲料清單統計</h4>
+                                                <h4 className="font-black mb-4 text-teal-600 flex items-center gap-2"><Icon name="Coffee" size={18}/> 飲料品項匯總</h4>
                                                 {Object.entries(stats.dc).map(([n,c]) => <div key={n} className="flex justify-between py-2 border-b border-slate-100 text-sm font-bold"><span>{n}</span><span>{c} 杯</span></div>)}
                                             </div>
                                         </div>
@@ -429,22 +462,22 @@
                                             <table className="w-full text-left text-sm">
                                                 <thead className="bg-slate-50 border-b font-black text-[10px] text-slate-400">
                                                     <tr>
-                                                        <th className="px-6 py-4">姓名</th>
+                                                        <th className="px-6 py-4">訂餐人</th>
                                                         <th className="px-6 py-4">便當</th>
                                                         <th className="px-6 py-4">飲料</th>
-                                                        <th className="px-6 py-4">金額</th>
-                                                        <th className="px-6 py-4">付款狀態</th>
+                                                        <th className="px-6 py-4 text-center">金額</th>
+                                                        <th className="px-6 py-4 text-center">付款狀態</th>
                                                         <th className="px-6 py-4 text-right no-print">操作</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody>
                                                     {orders.map(o => (
-                                                        <tr key={o.id} className="border-b border-slate-50 hover:bg-slate-50/50">
+                                                        <tr key={o.id} className="border-b border-slate-100 hover:bg-slate-50/50">
                                                             <td className="px-6 py-4 font-bold">{o.name}</td>
-                                                            <td className="px-6 py-4 text-slate-500">{o.bento || '-'}</td>
-                                                            <td className="px-6 py-4 text-slate-500">{o.drink || '-'}</td>
-                                                            <td className="px-6 py-4 font-bold">${o.total}</td>
-                                                            <td className="px-6 py-4">
+                                                            <td className="px-6 py-4 text-slate-600">{o.bento || '-'}</td>
+                                                            <td className="px-6 py-4 text-slate-600">{o.drink || '-'}</td>
+                                                            <td className="px-6 py-4 text-center font-bold">${o.total}</td>
+                                                            <td className="px-6 py-4 text-center">
                                                                 <span className={o.paid ? "text-green-600 font-bold" : "text-red-500 font-bold"}>
                                                                     {o.paid ? "已付" : "未付"}
                                                                 </span>
