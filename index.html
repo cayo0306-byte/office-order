@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -20,85 +19,20 @@
         .loading-spinner { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
-        /* --- 列印專用樣式修正 --- */
+        /* --- 列印專用樣式 --- */
         @media print {
-            /* 隱藏所有不需要列印的元素 */
-            header, 
-            button, 
-            .no-print, 
-            input, 
-            .fixed,
-            nav {
-                display: none !important;
-            }
-            
-            /* 確保主體可見 */
-            body {
-                background: white !important;
-                color: black !important;
-                padding: 0 !important;
-                margin: 0 !important;
-                display: block !important;
-            }
-            
-            #root, main {
-                display: block !important;
-                width: 100% !important;
-                margin: 0 !important;
-                padding: 0 !important;
-            }
-
-            .print-only {
-                display: block !important;
-            }
-
-            .printable-area {
-                display: block !important;
-                width: 100% !important;
-            }
-
-            /* 調整卡片在列印時的佈局 */
-            .card-grid {
-                display: flex !important;
-                flex-wrap: wrap !important;
-                gap: 10px !important;
-                margin-bottom: 20px !important;
-            }
-            
-            .card-grid > div {
-                flex: 1 !important;
-                min-width: 20% !important;
-                border: 1px solid #000 !important;
-                padding: 10px !important;
-                box-shadow: none !important;
-                background: white !important;
-            }
-
-            /* 表格邊框強化 */
-            table {
-                border-collapse: collapse !important;
-                width: 100% !important;
-                margin-top: 10px !important;
-            }
-            
-            th, td {
-                border: 1px solid #000 !important;
-                padding: 8px !important;
-                text-align: left !important;
-                color: black !important;
-            }
-
-            /* 強制移除背景色 */
-            .bg-slate-50, .bg-white, .bg-indigo-600 {
-                background-color: transparent !important;
-                color: black !important;
-            }
-            
-            /* 分頁設定：防止表格被截斷 */
+            header, button, .no-print, input, .fixed, nav { display: none !important; }
+            body { background: white !important; color: black !important; padding: 0 !important; margin: 0 !important; display: block !important; }
+            #root, main { display: block !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
+            .print-only { display: block !important; }
+            .printable-area { display: block !important; width: 100% !important; }
+            .card-grid { display: grid !important; grid-template-cols: repeat(4, 1fr) !important; gap: 10px !important; margin-bottom: 20px !important; }
+            .card-grid > div { border: 1px solid #000 !important; padding: 10px !important; box-shadow: none !important; background: white !important; }
+            table { border-collapse: collapse !important; width: 100% !important; margin-top: 10px !important; }
+            th, td { border: 1px solid #000 !important; padding: 8px !important; text-align: left !important; color: black !important; }
+            .bg-slate-50, .bg-white, .bg-indigo-600 { background-color: transparent !important; color: black !important; }
             tr { page-break-inside: avoid; }
-            h1, h2, h3, h4 { page-break-after: avoid; }
         }
-        
         .print-only { display: none; }
     </style>
 </head>
@@ -116,9 +50,8 @@
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
-        // --- 🔵 步驟 1：填寫您的 Firebase 配置 ---
         let firebaseConfig = {
-            apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
+           apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
   authDomain: "order-c3529.firebaseapp.com",
   projectId: "order-c3529",
   storageBucket: "order-c3529.firebasestorage.app",
@@ -130,20 +63,17 @@
             if (typeof __firebase_config !== 'undefined') {
                 firebaseConfig = JSON.parse(__firebase_config);
             }
-
-            if (firebaseConfig.apiKey === "你的API_KEY") {
-                window.fbError = "未偵測到 Firebase 配置。請編輯 index.html 檔案，將 firebaseConfig 替換為您的 Firebase 專案資訊。";
-            } else {
+            if (firebaseConfig.apiKey !== "你的API_KEY") {
                 const app = initializeApp(firebaseConfig);
                 const auth = getAuth(app);
                 const db = getFirestore(app);
                 const appId = typeof __app_id !== 'undefined' ? __app_id : "office-lunch-v2"; 
-
                 window.fb = { auth, db, appId, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, writeBatch, signInAnonymously, onAuthStateChanged };
+            } else {
+                window.fbError = "請先填寫 Firebase Config。";
             }
         } catch (error) {
-            window.fbError = "初始化失敗: " + error.message;
-            console.error("Firebase 初始化失敗:", error);
+            window.fbError = error.message;
         }
     </script>
 
@@ -169,7 +99,8 @@
                 Utensils: <><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" /><path d="M7 2v20" /><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" /></>,
                 Coffee: <><path d="M17 8h1a4 4 0 1 1 0 8h-1" /><path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8z" /><line x1="6" y1="2" x2="6" y2="4" /><line x1="10" y1="2" x2="10" y2="4" /><line x1="14" y1="2" x2="14" y2="4" /></>,
                 RefreshCw: <><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M3 21v-5h5" /></>,
-                Printer: <><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect width="12" height="8" x="6" y="14" /></>
+                Printer: <><polyline points="6 9 6 2 18 2 18 9" /><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" /><rect width="12" height="8" x="6" y="14" /></>,
+                Share2: <><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><line x1="8.59" y1="13.51" x2="15.42" y2="17.49" /><line x1="15.41" y1="6.51" x2="8.59" y2="10.49" /></>
             };
             return (
                 <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -208,23 +139,34 @@
                 setTimeout(() => setMessage(null), 3000);
             };
 
-            useEffect(() => {
-                const checkFB = setInterval(() => {
-                    if (window.fb) {
-                        clearInterval(checkFB);
-                        const { auth, signInAnonymously, onAuthStateChanged } = window.fb;
-                        signInAnonymously(auth).catch((err) => {
-                            setInitError("認證失敗：" + err.message);
-                        });
-                        onAuthStateChanged(auth, setUser);
-                    } else if (window.fbError) {
-                        clearInterval(checkFB);
-                        setInitError(window.fbError);
-                        setLoading(false);
+            const handleShare = async () => {
+                const shareData = {
+                    title: '辦公室訂餐小幫手',
+                    text: '今天的午餐/飲料訂單開跑囉，快來填寫你的餐點！',
+                    url: window.location.href
+                };
+
+                if (navigator.share) {
+                    try {
+                        await navigator.share(shareData);
+                    } catch (err) {
+                        console.log('使用者取消分享');
                     }
-                }, 200);
-                return () => clearInterval(checkFB);
-            }, []);
+                } else {
+                    // 備案：複製到剪貼簿
+                    try {
+                        const textArea = document.createElement("textarea");
+                        textArea.value = window.location.href;
+                        document.body.appendChild(textArea);
+                        textArea.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(textArea);
+                        showMsg("連結已複製到剪貼簿！");
+                    } catch (err) {
+                        showMsg("無法自動複製，請手動複製網址", "error");
+                    }
+                }
+            };
 
             useEffect(() => {
                 if (!user || !window.fb) return;
@@ -234,13 +176,13 @@
                     setOrders(s.docs.map(d => ({ id: d.id, ...d.data() })));
                 });
                 const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'), (s) => {
-                    if (s.exists()) setSettings(s.data());
+                    setSettings(s.exists() ? s.data() : { deadline: null });
                 });
                 const unsubBentoImg = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'bento_menu'), (s) => {
-                    if (s.exists()) setBentoImage(s.data().image);
+                    setBentoImage(s.exists() ? s.data().image : null);
                 });
                 const unsubDrinkImg = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'drink_menu'), (s) => {
-                    if (s.exists()) setDrinkImage(s.data().image);
+                    setDrinkImage(s.exists() ? s.data().image : null);
                     setLoading(false);
                 });
                 const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -300,6 +242,33 @@
                 setIsSubmitting(false);
             };
 
+            const resetEverything = async () => {
+                if (!window.fb || !confirm("確定要全面重置嗎？這將刪除所有訂單、圖片以及截止時間設定！")) return;
+                const { db, appId, doc, writeBatch, collection } = window.fb;
+                const batch = writeBatch(db);
+                
+                // 1. 刪除所有訂單
+                orders.forEach(o => {
+                    batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id));
+                });
+                
+                // 2. 刪除菜單圖片與配置
+                batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'bento_menu'));
+                batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'drink_menu'));
+                batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'config'));
+                
+                try {
+                    await batch.commit();
+                    // 手動清空本地狀態 (雖然 onSnapshot 會處理，但手動更快)
+                    setBentoImage(null);
+                    setDrinkImage(null);
+                    setSettings({ deadline: null });
+                    showMsg("所有資料已全面重置");
+                } catch (e) {
+                    showMsg("重置失敗", "error");
+                }
+            };
+
             const stats = useMemo(() => {
                 let bt = 0, dt = 0, ps = 0;
                 const bc = {}, dc = {};
@@ -316,17 +285,16 @@
                 <div className="h-screen p-6 flex flex-col items-center justify-center text-center bg-red-50">
                     <Icon name="AlertCircle" size={50} className="text-red-500 mb-4" />
                     <h1 className="text-xl font-black text-red-900 mb-4">系統連接異常</h1>
-                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-red-100 max-w-md w-full text-slate-600 text-sm leading-relaxed">
-                        <p className="font-bold text-red-600 mb-3 break-words">{initError}</p>
+                    <div className="bg-white p-6 rounded-2xl shadow-lg border border-red-100 max-w-md w-full text-slate-600 text-sm">
+                        <p className="font-bold text-red-600 mb-3">{initError}</p>
                     </div>
-                    <button onClick={() => location.reload()} className="mt-6 bg-red-600 text-white px-8 py-3 rounded-xl font-bold">重新連線</button>
                 </div>
             );
 
             if (loading) return (
                 <div className="h-screen flex flex-col items-center justify-center font-bold text-slate-400 gap-4">
                     <div className="w-10 h-10 border-4 border-slate-200 border-t-orange-500 rounded-full loading-spinner"></div>
-                    正在同步雲端資料...
+                    正在載入...
                 </div>
             );
 
@@ -342,11 +310,17 @@
                     <header className="bg-white border-b sticky top-0 z-30 shadow-sm px-4 h-16 flex items-center justify-between no-print">
                         <div className="flex items-center gap-2">
                             <div className="bg-orange-500 p-2 rounded-xl text-white"><Icon name="ShoppingCart" /></div>
-                            <span className="font-black text-xl tracking-tight">訂餐小幫手</span>
+                            <span className="font-black text-xl tracking-tight text-slate-800">訂餐小幫手</span>
                         </div>
-                        <button onClick={() => setView(view === 'order' ? 'admin' : 'order')} className="bg-slate-100 px-5 py-2.5 rounded-full text-sm font-bold flex items-center gap-2 transition-all hover:bg-slate-200">
-                            {view === 'order' ? <><Icon name="LayoutDashboard" size={16}/> 管理</> : <><Icon name="ChevronLeft" size={16}/> 返回</>}
-                        </button>
+                        <div className="flex items-center gap-2">
+                            <button onClick={handleShare} className="bg-indigo-50 text-indigo-600 p-2.5 rounded-full transition-all hover:bg-indigo-100 flex items-center gap-2 px-4 text-sm font-bold">
+                                <Icon name="Share2" size={18}/>
+                                <span className="hidden sm:inline">分享連結</span>
+                            </button>
+                            <button onClick={() => setView(view === 'order' ? 'admin' : 'order')} className="bg-slate-100 px-5 py-2.5 rounded-full text-sm font-bold flex items-center gap-2 transition-all hover:bg-slate-200">
+                                {view === 'order' ? <><Icon name="LayoutDashboard" size={16}/> 管理</> : <><Icon name="ChevronLeft" size={16}/> 返回</>}
+                            </button>
+                        </div>
                     </header>
 
                     <main className="max-w-4xl mx-auto p-4 mt-4 space-y-8">
@@ -418,10 +392,9 @@
                                 </div>
                                 {adminTab === 'orders' ? (
                                     <div className="space-y-6 printable-area">
-                                        {/* 列印抬頭 */}
                                         <div className="print-only text-center border-b-4 border-double border-black pb-4 mb-6">
-                                            <h1 className="text-3xl font-black">午餐飲料團購統計清單</h1>
-                                            <p className="mt-2 font-bold">列印時間：{new Date().toLocaleString('zh-TW')}</p>
+                                            <h1 className="text-3xl font-black text-slate-800">午餐飲料團購清單</h1>
+                                            <p className="mt-2 font-bold text-slate-500">日期：{new Date().toLocaleDateString('zh-TW')}</p>
                                         </div>
 
                                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center font-bold card-grid">
@@ -432,18 +405,13 @@
                                             <div className="print-only bg-white p-6 rounded-3xl border border-black text-black">✅ 已實收<br/>${stats.ps}</div>
                                         </div>
 
-                                        <div className="flex justify-between items-center no-print">
-                                            <button onClick={() => window.print()} className="bg-indigo-600 text-white px-6 py-2 rounded-full font-bold flex items-center gap-2 shadow-md hover:bg-indigo-700 transition-all">
-                                                <Icon name="Printer" size={18} /> 列印統計清單
+                                        <div className="flex justify-between items-center no-print px-2">
+                                            <button onClick={() => window.print()} className="bg-indigo-600 text-white px-6 py-2 rounded-full font-bold flex items-center gap-2 shadow-md hover:bg-indigo-700">
+                                                <Icon name="Printer" size={18} /> 列印清單
                                             </button>
-                                            <button onClick={async () => {
-                                                if (!confirm("確定重置嗎？")) return;
-                                                const { db, appId, doc, writeBatch } = window.fb;
-                                                const batch = writeBatch(db);
-                                                orders.forEach(o => batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id)));
-                                                await batch.commit();
-                                                showMsg("已重置");
-                                            }} className="text-red-500 text-xs font-bold flex items-center gap-1 hover:underline"><Icon name="RefreshCw" size={14}/> 重置今日資料</button>
+                                            <button onClick={resetEverything} className="text-red-500 text-xs font-bold flex items-center gap-1 hover:underline">
+                                                <Icon name="RefreshCw" size={14}/> 全面重置 (含圖片)
+                                            </button>
                                         </div>
 
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 card-grid">
@@ -458,35 +426,19 @@
                                         </div>
 
                                         <div className="bg-white rounded-3xl border overflow-hidden shadow-sm">
-                                            <div className="bg-slate-50 px-6 py-3 font-black text-xs text-slate-400 uppercase tracking-widest no-print">訂單詳細列表</div>
                                             <table className="w-full text-left text-sm">
                                                 <thead className="bg-slate-50 border-b font-black text-[10px] text-slate-400">
-                                                    <tr>
-                                                        <th className="px-6 py-4">訂餐人</th>
-                                                        <th className="px-6 py-4">便當</th>
-                                                        <th className="px-6 py-4">飲料</th>
-                                                        <th className="px-6 py-4 text-center">金額</th>
-                                                        <th className="px-6 py-4 text-center">付款狀態</th>
-                                                        <th className="px-6 py-4 text-right no-print">操作</th>
-                                                    </tr>
+                                                    <tr><th className="px-6 py-4">訂餐人</th><th className="px-6 py-4">便當</th><th className="px-6 py-4">飲料</th><th className="px-6 py-4 text-center">金額</th><th className="px-6 py-4 text-center">付款</th><th className="px-6 py-4 text-right no-print">操作</th></tr>
                                                 </thead>
                                                 <tbody>
                                                     {orders.map(o => (
-                                                        <tr key={o.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                                                        <tr key={o.id} className="border-b border-slate-100">
                                                             <td className="px-6 py-4 font-bold">{o.name}</td>
                                                             <td className="px-6 py-4 text-slate-600">{o.bento || '-'}</td>
                                                             <td className="px-6 py-4 text-slate-600">{o.drink || '-'}</td>
                                                             <td className="px-6 py-4 text-center font-bold">${o.total}</td>
-                                                            <td className="px-6 py-4 text-center">
-                                                                <span className={o.paid ? "text-green-600 font-bold" : "text-red-500 font-bold"}>
-                                                                    {o.paid ? "已付" : "未付"}
-                                                                </span>
-                                                            </td>
-                                                            <td className="px-6 py-4 text-right no-print">
-                                                                <button onClick={async () => { if(confirm("確定刪除？")) await window.fb.deleteDoc(window.fb.doc(window.fb.db, 'artifacts', window.fb.appId, 'public', 'data', 'orders', o.id)); }} className="text-slate-200 hover:text-red-500 transition-colors">
-                                                                    <Icon name="Trash2" size={16}/>
-                                                                </button>
-                                                            </td>
+                                                            <td className="px-6 py-4 text-center"><span className={o.paid ? "text-green-600 font-bold" : "text-red-500 font-bold"}>{o.paid ? "已付" : "未付"}</span></td>
+                                                            <td className="px-6 py-4 text-right no-print"><button onClick={async () => { if(confirm("確定刪除？")) await window.fb.deleteDoc(window.fb.doc(window.fb.db, 'artifacts', window.fb.appId, 'public', 'data', 'orders', o.id)); }} className="text-slate-200 hover:text-red-500"><Icon name="Trash2" size={16}/></button></td>
                                                         </tr>
                                                     ))}
                                                 </tbody>
@@ -513,11 +465,13 @@
                                                 <h3 className="font-black text-orange-600 flex items-center justify-center gap-2"><Icon name="Camera" /> 便當菜單照片</h3>
                                                 <input type="file" className="hidden" ref={bentoInputRef} onChange={e => handleUpload(e, 'bento')} />
                                                 <button disabled={uploadingType==='bento'} onClick={() => bentoInputRef.current.click()} className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black">更換照片</button>
+                                                {bentoImage && <button onClick={async () => { if(confirm("刪除便當圖片？")) await window.fb.deleteDoc(window.fb.doc(window.fb.db, 'artifacts', window.fb.appId, 'public', 'data', 'settings', 'bento_menu')); }} className="block mx-auto text-xs text-red-400 hover:underline">刪除目前圖片</button>}
                                             </div>
                                             <div className="bg-white p-8 rounded-[2rem] text-center border shadow-sm space-y-4">
                                                 <h3 className="font-black text-teal-600 flex items-center justify-center gap-2"><Icon name="Camera" /> 飲料菜單照片</h3>
                                                 <input type="file" className="hidden" ref={drinkInputRef} onChange={e => handleUpload(e, 'drink')} />
                                                 <button disabled={uploadingType==='drink'} onClick={() => drinkInputRef.current.click()} className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black">更換照片</button>
+                                                {drinkImage && <button onClick={async () => { if(confirm("刪除飲料圖片？")) await window.fb.deleteDoc(window.fb.doc(window.fb.db, 'artifacts', window.fb.appId, 'public', 'data', 'settings', 'drink_menu')); }} className="block mx-auto text-xs text-red-400 hover:underline">刪除目前圖片</button>}
                                             </div>
                                         </div>
                                     </div>
@@ -533,4 +487,4 @@
         root.render(<App />);
     </script>
 </body>
-</html>
+</html>                                          
