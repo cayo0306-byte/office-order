@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -42,12 +41,12 @@
 
         // --- 🟢 請在這裡貼上您的 Firebase Config 🟢 ---
         const firebaseConfig = {
-            apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
-            authDomain: "order-c3529.firebaseapp.com",
-            projectId: "order-c3529",
-            storageBucket: "order-c3529.firebasestorage.app",
-            messagingSenderId: "700659521697",
-            appId: "1:700659521697:web:e94b9f712409e4c57c38e0"
+             apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
+  authDomain: "order-c3529.firebaseapp.com",
+  projectId: "order-c3529",
+  storageBucket: "order-c3529.firebasestorage.app",
+  messagingSenderId: "700659521697",
+  appId: "1:700659521697:web:e94b9f712409e4c57c38e0"
         };
 
         try {
@@ -129,7 +128,7 @@
                 if (!user || !window.fb) return;
                 const { db, collection, doc, onSnapshot, appId } = window.fb;
                 
-                // 訂單監聽
+                // 訂單監聽 - 扁平化路徑
                 const unsubOrders = onSnapshot(collection(db, 'orders'), s => {
                     setOrders(s.docs.map(d => ({ id: d.id, ...d.data() })));
                     setLoading(false);
