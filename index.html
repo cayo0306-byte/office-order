@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>辦公室訂餐小幫手 - 修正版</title>
+    <title>辦公室訂餐小幫手 - 完整版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -13,14 +13,16 @@
         body { font-family: 'Noto Sans TC', sans-serif; -webkit-tap-highlight-color: transparent; }
         .loading-spinner { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        /* 列印樣式設定 */
         @media print {
-            header, button, .no-print, input, .fixed, nav, .upload-section { display: none !important; }
-            body { background: white !important; color: black !important; padding: 0 !important; margin: 0 !important; display: block !important; }
-            #root, main { display: block !important; width: 100% !important; margin: 0 !important; padding: 0 !important; }
+            header, button, .no-print, .upload-section, .fixed { display: none !important; }
+            body { background: white !important; color: black !important; padding: 0 !important; margin: 0 !important; }
             .print-only { display: block !important; }
             .printable-area { display: block !important; width: 100% !important; }
-            table { border-collapse: collapse !important; width: 100% !important; }
-            th, td { border: 1px solid #000 !important; padding: 10px !important; }
+            table { border-collapse: collapse !important; width: 100% !important; border: 2px solid black !important; }
+            th, td { border: 1px solid black !important; padding: 8px !important; color: black !important; }
+            .card-grid { display: grid !important; grid-template-cols: repeat(2, 1fr) !important; gap: 10px !important; }
         }
         .print-only { display: none; }
     </style>
@@ -29,7 +31,7 @@
     <div id="root">
         <div class="h-screen flex items-center justify-center flex-col gap-4 text-slate-400">
             <div class="w-12 h-12 border-4 border-slate-200 border-t-orange-500 rounded-full loading-spinner"></div>
-            <p id="loading-text" class="font-bold animate-pulse text-sm">系統啟動中...</p>
+            <p class="font-bold animate-pulse text-sm">正在連線至 Firebase 雲端...</p>
         </div>
     </div>
 
@@ -38,7 +40,6 @@
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, writeBatch, query, orderBy } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
-        // --- 🔵 步驟 1：請務必在此貼上您的 Config 且確認引號正確 ---
         const firebaseConfig = {
             apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
             authDomain: "order-c3529.firebaseapp.com",
@@ -49,17 +50,12 @@
         };
 
         try {
-            if (firebaseConfig.apiKey.includes("你的")) {
-                window.fbError = "偵測到未填寫的預設 Config。請將您從 Firebase Console 取得的配置貼入 index.html。";
-            } else {
-                const app = initializeApp(firebaseConfig);
-                const auth = getAuth(app);
-                const db = getFirestore(app);
-                window.fb = { auth, db, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, writeBatch, query, orderBy, signInAnonymously, onAuthStateChanged };
-                console.log("Firebase 初始化成功");
-            }
+            const app = initializeApp(firebaseConfig);
+            const auth = getAuth(app);
+            const db = getFirestore(app);
+            window.fb = { auth, db, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, writeBatch, query, orderBy, signInAnonymously, onAuthStateChanged };
         } catch (e) {
-            window.fbError = "Firebase 語法或配置錯誤: " + e.message;
+            window.fbError = "Firebase 初始失敗: " + e.message;
         }
     </script>
 
@@ -88,52 +84,44 @@
         function App() {
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
-            const [loadingStep, setLoadingStep] = useState('系統模組載入中...');
             const [error, setError] = useState(window.fbError || null);
             const [view, setView] = useState('order'); 
             const [orders, setOrders] = useState([]);
             const [menus, setMenus] = useState({ bento: null, drink: null });
             const [message, setMessage] = useState(null);
+
+            // 表單狀態
             const [customer, setCustomer] = useState({ name: '', bItem: '', bPrice: '', dItem: '', dPrice: '' });
             const [isSubmitting, setIsSubmitting] = useState(false);
             const [isUploading, setIsUploading] = useState(false);
 
-            // 1. 強制連線偵測
+            // 1. 初始化驗證
             useEffect(() => {
-                const timeoutId = setTimeout(() => {
-                    if (loading && !error) {
-                        setLoading(false);
-                        setError("【連線逾時】\n請檢查：\n1. Firebase Config 是否正確。\n2. Authentication > Anonymous 登入是否已「啟用」。");
-                    }
+                const timer = setTimeout(() => {
+                    if (loading && !error) setError("連線逾時。請檢查網域授權或匿名登入是否開啟。");
                 }, 10000);
 
                 const checkFB = setInterval(() => {
                     if (window.fb) {
                         clearInterval(checkFB);
-                        setLoadingStep("正在進行身分驗證...");
                         const { auth, signInAnonymously, onAuthStateChanged } = window.fb;
-                        signInAnonymously(auth).catch(e => {
-                            setError(`認證失敗 [${e.code}]: \n${e.message}\n請確認匿名登入已開啟。`);
-                        });
+                        signInAnonymously(auth).catch(e => setError("認證失敗: " + e.code));
                         onAuthStateChanged(auth, u => { if(u) setUser(u); });
                     }
                 }, 500);
 
-                return () => { clearInterval(checkFB); clearTimeout(timeoutId); };
+                return () => { clearInterval(checkFB); clearTimeout(timer); };
             }, []);
 
+            // 2. 數據同步
             useEffect(() => {
                 if (!user || !window.fb) return;
-                setLoadingStep("已連線，正在讀取訂單...");
                 const { db, collection, onSnapshot, doc, query, orderBy } = window.fb;
 
                 const unsubOrders = onSnapshot(query(collection(db, 'orders'), orderBy('time', 'desc')), s => {
                     setOrders(s.docs.map(d => ({ id: d.id, ...d.data() })));
                     setLoading(false);
-                }, e => {
-                    setError(`資料庫存取被拒: \n請檢查 Firestore Rules 是否已改為 allow read, write: if true;`);
-                    setLoading(false);
-                });
+                }, e => setError("資料庫存取被拒: " + e.code));
 
                 const unsubBento = onSnapshot(doc(db, 'config', 'bento'), s => {
                     if(s.exists()) setMenus(prev => ({ ...prev, bento: s.data().img }));
@@ -150,6 +138,7 @@
                 setTimeout(() => setMessage(null), 3000);
             };
 
+            // 高清圖片處理
             const handleUpload = async (e, type) => {
                 const file = e.target.files[0];
                 if (!file || !window.fb) return;
@@ -166,7 +155,7 @@
                             if (w > 1200) { h = (1200/w)*h; w = 1200; }
                             canvas.width = w; canvas.height = h;
                             canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                            const base64 = canvas.toDataURL('image/jpeg', 0.6);
+                            const base64 = canvas.toDataURL('image/jpeg', 0.65);
                             await window.fb.setDoc(window.fb.doc(window.fb.db, 'config', type), { img: base64, time: Date.now() });
                             showMsg("菜單更新成功！");
                             setIsUploading(false);
@@ -180,25 +169,26 @@
                 if (!customer.name || (!customer.bItem && !customer.dItem)) return showMsg("內容不完整", "error");
                 setIsSubmitting(true);
                 try {
+                    const total = (Number(customer.bPrice)||0) + (Number(customer.dPrice)||0);
                     await window.fb.addDoc(window.fb.collection(window.fb.db, 'orders'), {
                         ...customer,
                         bPrice: Number(customer.bPrice)||0,
                         dPrice: Number(customer.dPrice)||0,
-                        total: (Number(customer.bPrice)||0) + (Number(customer.dPrice)||0),
-                        paid: false, time: Date.now()
+                        total, paid: false, time: Date.now()
                     });
-                    setCustomer({ name: customer.name, bItem: '', bPrice: '', dItem: '', dPrice: '' });
-                    showMsg("訂購成功！");
-                } catch (err) { showMsg("失敗: " + err.code, "error"); }
+                    setCustomer({ ...customer, bItem: '', bPrice: '', dItem: '', dPrice: '' });
+                    showMsg("下單成功！");
+                } catch (err) { showMsg("錯誤: " + err.code, "error"); }
                 finally { setIsSubmitting(false); }
             };
 
+            // 統計邏輯
             const stats = useMemo(() => {
                 let bt = 0, dt = 0, ps = 0;
                 const bc = {}, dc = {};
                 orders.forEach(o => {
-                    bt += o.bPrice || 0; dt += o.dPrice || 0;
-                    if (o.paid) ps += o.total || 0;
+                    bt += o.bPrice; dt += o.dPrice;
+                    if (o.paid) ps += o.total;
                     if (o.bItem) bc[o.bItem] = (bc[o.bItem] || 0) + 1;
                     if (o.dItem) dc[o.dItem] = (dc[o.dItem] || 0) + 1;
                 });
@@ -209,11 +199,9 @@
                 <div className="h-screen flex items-center justify-center p-6 bg-red-50 text-center">
                     <div className="max-w-md w-full bg-white p-8 rounded-[2rem] shadow-2xl border border-red-100">
                         <Icon name="AlertCircle" size={48} className="text-red-500 mx-auto mb-4" />
-                        <h1 className="text-xl font-black text-red-900 mb-4">系統偵測報告</h1>
-                        <div className="bg-red-50 p-4 rounded-xl text-left mb-6 font-mono text-xs text-red-700 whitespace-pre-wrap leading-relaxed border border-red-100">
-                            {error}
-                        </div>
-                        <button onClick={()=>location.reload()} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold shadow-lg active:scale-95 transition-all">重新讀取系統</button>
+                        <h1 className="text-xl font-black text-red-900 mb-4">連線診斷報告</h1>
+                        <div className="bg-red-50 p-4 rounded-xl text-left mb-6 font-mono text-xs text-red-700 whitespace-pre-wrap leading-relaxed border border-red-100">{error}</div>
+                        <button onClick={()=>location.reload()} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold shadow-lg">嘗試重新連線</button>
                     </div>
                 </div>
             );
@@ -221,7 +209,7 @@
             if (loading) return (
                 <div className="h-screen flex items-center justify-center flex-col gap-4 text-slate-400">
                     <div className="w-12 h-12 border-4 border-slate-200 border-t-orange-500 rounded-full loading-spinner"></div>
-                    <p className="font-bold animate-pulse text-sm tracking-widest">{loadingStep}</p>
+                    <p class="font-bold animate-pulse text-sm">正在同步雲端資料...</p>
                 </div>
             );
 
@@ -232,7 +220,7 @@
                     <header className="bg-white border-b h-16 flex items-center justify-between px-4 sticky top-0 z-30 no-print shadow-sm">
                         <div className="flex items-center gap-2">
                             <div className="bg-orange-500 p-2 rounded-xl text-white shadow-lg"><Icon name="ShoppingCart" /></div>
-                            <span className="font-black text-xl tracking-tighter">辦公室訂餐系統</span>
+                            <span className="font-black text-xl tracking-tighter">辦公室訂餐小幫手</span>
                         </div>
                         <div className="flex gap-2">
                              <button onClick={() => { 
@@ -243,8 +231,8 @@
                                     document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
                                     showMsg("連結已複製");
                                 }
-                             }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs font-black flex items-center gap-2"><Icon name="Share2" size={14}/>分享</button>
-                             <button onClick={() => setView(view==='order'?'admin':'order')} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-full text-xs font-black transition-all hover:bg-slate-200">{view==='order'?'管理後台':'返回訂餐'}</button>
+                             }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs font-black flex items-center gap-2 transition-all hover:bg-blue-100"><Icon name="Share2" size={14}/>分享</button>
+                             <button onClick={() => setView(view==='order'?'admin':'order')} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-full text-xs font-black transition-all hover:bg-slate-200">{view==='order'?'統計管理':'返回訂餐'}</button>
                         </div>
                     </header>
 
@@ -253,17 +241,17 @@
                             <div className="space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 no-print">
                                     <div className="bg-white p-2 rounded-2xl border shadow-sm text-center">
-                                        <div className="text-[10px] text-orange-600 font-black mb-1 uppercase tracking-widest">🍱 便當菜單 (HD)</div>
-                                        {menus.bento ? <img src={menus.bento} className="w-full rounded-xl shadow-inner"/> : <div className="py-20 text-slate-200 text-xs italic">尚未上傳菜單</div>}
+                                        <div className="text-[10px] text-orange-600 font-black mb-1 uppercase tracking-widest tracking-tight">🍱 便當菜單 (HD)</div>
+                                        {menus.bento ? <img src={menus.bento} className="w-full rounded-xl shadow-inner"/> : <div className="py-24 text-slate-200 text-xs italic border-2 border-dashed border-slate-50 rounded-xl">尚未上傳</div>}
                                     </div>
                                     <div className="bg-white p-2 rounded-2xl border shadow-sm text-center">
-                                        <div className="text-[10px] text-teal-600 font-black mb-1 uppercase tracking-widest">🥤 飲料菜單 (HD)</div>
-                                        {menus.drink ? <img src={menus.drink} className="w-full rounded-xl shadow-inner"/> : <div className="py-20 text-slate-200 text-xs italic">尚未上傳菜單</div>}
+                                        <div className="text-[10px] text-teal-600 font-black mb-1 uppercase tracking-widest tracking-tight">🥤 飲料菜單 (HD)</div>
+                                        {menus.drink ? <img src={menus.drink} className="w-full rounded-xl shadow-inner"/> : <div className="py-24 text-slate-200 text-xs italic border-2 border-dashed border-slate-50 rounded-xl">尚未上傳</div>}
                                     </div>
                                 </div>
 
                                 <section className="bg-white p-8 rounded-[2rem] shadow-xl border border-white">
-                                    <h2 className="text-xl font-black mb-8 flex items-center gap-2 text-slate-800"><Icon name="Plus" className="text-orange-500"/> 我要點餐</h2>
+                                    <h2 className="text-xl font-black mb-8 flex items-center gap-2 text-slate-800"><Icon name="Plus" className="text-orange-500"/> 我要訂餐</h2>
                                     <form onSubmit={handleSubmit} className="space-y-8">
                                         <div className="relative">
                                             <label className="text-[10px] font-black text-slate-400 absolute -top-2 left-4 bg-white px-2 uppercase tracking-widest">您的稱呼</label>
@@ -271,13 +259,13 @@
                                         </div>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                             <div className="space-y-4">
-                                                <h3 className="text-orange-600 font-black text-sm uppercase tracking-widest">🍱 便當選擇</h3>
+                                                <h3 className="text-orange-600 font-black text-sm uppercase tracking-widest">🍱 便當品項</h3>
                                                 <input value={customer.bItem} onChange={e=>setCustomer({...customer, bItem: e.target.value})} placeholder="品項名稱" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-bold border-2 border-transparent focus:border-orange-100"/>
                                                 <input type="number" value={customer.bPrice} onChange={e=>setCustomer({...customer, bPrice: e.target.value})} placeholder="金額 $" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-black"/>
                                             </div>
                                             <div className="space-y-4">
-                                                <h3 className="text-teal-600 font-black text-sm uppercase tracking-widest">🥤 飲料選擇</h3>
-                                                <input value={customer.dItem} onChange={e=>setCustomer({...customer, dItem: e.target.value})} placeholder="品項/甜度/冰塊" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-bold border-2 border-transparent focus:border-teal-100"/>
+                                                <h3 className="text-teal-600 font-black text-sm uppercase tracking-widest">🥤 飲料品項</h3>
+                                                <input value={customer.dItem} onChange={e=>setCustomer({...customer, dItem: e.target.value})} placeholder="品項/冰塊甜度" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-bold border-2 border-transparent focus:border-teal-100"/>
                                                 <input type="number" value={customer.dPrice} onChange={e=>setCustomer({...customer, dPrice: e.target.value})} placeholder="金額 $" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-black"/>
                                             </div>
                                         </div>
@@ -288,21 +276,19 @@
                                 </section>
 
                                 <section className="bg-white p-8 rounded-[2rem] border shadow-sm no-print">
-                                    <h2 className="text-xl font-black mb-6 text-slate-700">我的訂單與付款</h2>
+                                    <h2 className="text-xl font-black mb-6 text-slate-700">付款進度確認</h2>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        {orders.length === 0 ? <p className="col-span-full py-10 text-center text-slate-300 font-bold">目前尚未有訂單</p> : 
-                                            orders.map(o => (
-                                                <div key={o.id} className={`p-5 rounded-2xl border flex items-center justify-between transition-all ${o.paid?'bg-green-50 border-green-100 shadow-inner':'bg-slate-50 border-slate-100 shadow-sm'}`}>
-                                                    <div className="min-w-0 pr-2">
-                                                        <div className="font-black truncate text-slate-800">{o.name}</div>
-                                                        <div className="text-[10px] text-slate-500 font-bold">${o.total} - {o.bItem} {o.dItem}</div>
-                                                    </div>
-                                                    <button onClick={()=>window.fb.updateDoc(window.fb.doc(window.fb.db, 'orders', o.id), { paid: !o.paid })} className={`px-5 py-2 rounded-xl text-[10px] font-black shadow-sm ${o.paid?'bg-green-600 text-white':'bg-white text-orange-600 border border-orange-200'}`}>
-                                                        {o.paid ? '已付' : '付錢'}
-                                                    </button>
+                                        {orders.map(o => (
+                                            <div key={o.id} className={`p-5 rounded-2xl border flex items-center justify-between transition-all ${o.paid?'bg-green-50 border-green-100 shadow-inner':'bg-slate-50 border-slate-100 shadow-sm'}`}>
+                                                <div className="min-w-0 pr-2">
+                                                    <div className="font-black truncate text-slate-800">{o.name}</div>
+                                                    <div className="text-[10px] text-slate-500 font-bold">${o.total} - {o.bItem} {o.dItem}</div>
                                                 </div>
-                                            ))
-                                        }
+                                                <button onClick={()=>window.fb.updateDoc(window.fb.doc(window.fb.db, 'orders', o.id), { paid: !o.paid })} className={`px-5 py-2 rounded-xl text-[10px] font-black shadow-sm ${o.paid?'bg-green-600 text-white':'bg-white text-orange-600 border border-orange-200'}`}>
+                                                    {o.paid ? '已付' : '付錢'}
+                                                </button>
+                                            </div>
+                                        ))}
                                     </div>
                                 </section>
                             </div>
@@ -314,8 +300,8 @@
                                 </div>
 
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center font-black card-grid">
-                                    <div className="bg-white p-6 rounded-3xl border shadow-sm text-orange-600">🍱 便當<br/>${stats.bt}</div>
-                                    <div className="bg-white p-6 rounded-3xl border shadow-sm text-teal-600">🥤 飲料<br/>${stats.dt}</div>
+                                    <div className="bg-white p-6 rounded-3xl border shadow-sm text-orange-600">🍱 便當總額<br/>${stats.bt}</div>
+                                    <div className="bg-white p-6 rounded-3xl border shadow-sm text-teal-600">🥤 飲料總額<br/>${stats.dt}</div>
                                     <div className="bg-white p-6 rounded-3xl border shadow-sm text-slate-900">💰 總額<br/>${stats.tt}</div>
                                     <div className="bg-indigo-600 p-6 rounded-3xl text-white shadow-xl no-print">✅ 實收<br/>${stats.ps}</div>
                                     <div className="print-only bg-white p-6 rounded-3xl border border-black text-black">✅ 實收<br/>${stats.ps}</div>
@@ -336,11 +322,11 @@
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 card-grid">
                                     <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
-                                        <h4 className="font-black mb-4 text-orange-600">🍱 便當品項統計</h4>
+                                        <h4 className="font-black mb-4 text-orange-600">🍱 便當彙總</h4>
                                         {Object.entries(stats.bc).map(([n,c]) => <div key={n} className="flex justify-between py-2 border-b border-slate-50 text-sm font-bold"><span>{n}</span><span className="bg-orange-100 text-orange-700 px-3 py-0.5 rounded-full">{c} 份</span></div>)}
                                     </div>
                                     <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
-                                        <h4 className="font-black mb-4 text-teal-600">🥤 飲料品項統計</h4>
+                                        <h4 className="font-black mb-4 text-teal-600">🥤 飲料彙總</h4>
                                         {Object.entries(stats.dc).map(([n,c]) => <div key={n} className="flex justify-between py-2 border-b border-slate-50 text-sm font-bold"><span>{n}</span><span className="bg-teal-100 text-teal-700 px-3 py-0.5 rounded-full">{c} 杯</span></div>)}
                                     </div>
                                 </div>
@@ -366,14 +352,14 @@
 
                                 <div className="grid grid-cols-2 gap-4 no-print mt-8">
                                     <div className="bg-white p-10 rounded-[2rem] border text-center shadow-sm">
-                                        <h4 className="font-black text-orange-600 mb-4 flex items-center justify-center gap-2"><Icon name="Camera"/> 更換便當菜單</h4>
+                                        <h4 className="font-black text-orange-600 mb-4 flex items-center justify-center gap-2 tracking-widest text-sm"><Icon name="Camera"/> 更換便當菜單</h4>
                                         <input type="file" className="hidden" id="b-up" onChange={e => handleUpload(e, 'bento')} accept="image/*" />
-                                        <button disabled={isUploading} onClick={() => document.getElementById('b-up').click()} className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-sm active:scale-95">{isUploading ? "上傳中..." : "選擇照片"}</button>
+                                        <button disabled={isUploading} onClick={() => document.getElementById('b-up').click()} className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-sm active:scale-95 transition-all">{isUploading ? "上傳中..." : "選擇照片"}</button>
                                     </div>
                                     <div className="bg-white p-10 rounded-[2rem] border text-center shadow-sm">
-                                        <h4 className="font-black text-teal-600 mb-4 flex items-center justify-center gap-2"><Icon name="Camera"/> 更換飲料菜單</h4>
+                                        <h4 className="font-black text-teal-600 mb-4 flex items-center justify-center gap-2 tracking-widest text-sm"><Icon name="Camera"/> 更換飲料菜單</h4>
                                         <input type="file" className="hidden" id="d-up" onChange={e => handleUpload(e, 'drink')} accept="image/*" />
-                                        <button disabled={isUploading} onClick={() => document.getElementById('d-up').click()} className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-sm active:scale-95">{isUploading ? "上傳中..." : "選擇照片"}</button>
+                                        <button disabled={isUploading} onClick={() => document.getElementById('d-up').click()} className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-sm active:scale-95 transition-all">{isUploading ? "上傳中..." : "選擇照片"}</button>
                                     </div>
                                 </div>
                             </div>
