@@ -4,17 +4,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>辦公室訂餐小幫手</title>
+    <title>辦公室訂餐小幫手 - 診斷版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
-        body { font-family: 'Noto Sans TC', sans-serif; -webkit-tap-highlight-color: transparent; scroll-behavior: smooth; }
+        body { font-family: 'Noto Sans TC', sans-serif; -webkit-tap-highlight-color: transparent; }
         .loading-spinner { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        
         @media print {
             header, button, .no-print, input, .fixed { display: none !important; }
             body { background: white !important; color: black !important; }
@@ -32,7 +31,7 @@
     <div id="root">
         <div class="h-screen flex items-center justify-center flex-col gap-4 text-slate-400">
             <div class="w-12 h-12 border-4 border-slate-200 border-t-orange-500 rounded-full loading-spinner"></div>
-            <p class="font-bold animate-pulse">正在與 Firebase 雲端建立加密連線...</p>
+            <p class="font-bold animate-pulse">正在初始化 Firebase 雲端核心...</p>
         </div>
     </div>
 
@@ -43,7 +42,7 @@
 
         // --- 🟢 請在這裡貼上您的 Firebase Config 🟢 ---
         const firebaseConfig = {
-            apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
+             apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
   authDomain: "order-c3529.firebaseapp.com",
   projectId: "order-c3529",
   storageBucket: "order-c3529.firebasestorage.app",
@@ -123,7 +122,9 @@
                     if (window.fb) {
                         clearInterval(init);
                         const { auth, signInAnonymously, onAuthStateChanged } = window.fb;
-                        signInAnonymously(auth).catch(e => setError("登入失敗: " + e.message));
+                        signInAnonymously(auth).catch(e => {
+                            setError("登入失敗: " + e.code + " (" + e.message + ")");
+                        });
                         onAuthStateChanged(auth, u => { if(u) setUser(u); });
                     }
                 }, 500);
@@ -135,11 +136,15 @@
                 if (!user || !window.fb) return;
                 const { db, collection, onSnapshot, doc, query, orderBy } = window.fb;
 
+                // 監聽訂單
                 const unsubOrders = onSnapshot(query(collection(db, 'orders'), orderBy('time', 'desc')), s => {
                     setOrders(s.docs.map(d => ({ id: d.id, ...d.data() })));
                     setLoading(false);
-                }, e => setError("權限被拒: " + e.message));
+                }, e => {
+                    setError("Firestore 讀取被拒: " + e.code + "。請檢查安全規則 (Rules) 是否已開啟。");
+                });
 
+                // 監聽菜單
                 const unsubBento = onSnapshot(doc(db, 'config', 'bento'), s => {
                     if(s.exists()) setMenus(prev => ({ ...prev, bento: s.data().img }));
                 });
@@ -163,26 +168,19 @@
                         img.onload = async () => {
                             const canvas = document.createElement('canvas');
                             let w = img.width, h = img.height;
-                            
                             const max_w = 1200; 
                             if (w > max_w) { h = (max_w/w)*h; w = max_w; }
                             canvas.width = w; canvas.height = h;
                             const ctx = canvas.getContext('2d');
                             ctx.drawImage(img, 0, 0, w, h);
-                            
                             const base64 = canvas.toDataURL('image/jpeg', 0.7);
                             
                             try {
                                 const { db, doc, setDoc } = window.fb;
-                                // 使用強大的 setDoc 覆蓋
-                                await setDoc(doc(db, 'config', type), { 
-                                    img: base64, 
-                                    time: Date.now() 
-                                });
-                                showMsg("高清菜單更新成功");
+                                await setDoc(doc(db, 'config', type), { img: base64, time: Date.now() });
+                                showMsg("菜單更新成功");
                             } catch (err) {
-                                console.error("上傳詳情:", err);
-                                showMsg("上傳失敗: 請確認 Firestore Rules 已開放", 'error');
+                                showMsg("上傳失敗: " + err.code, 'error');
                             } finally {
                                 setIsUploading(false);
                             }
@@ -207,19 +205,8 @@
                     });
                     setBItem(''); setBPrice(''); setDItem(''); setDPrice('');
                     showMsg("訂購成功！");
-                } catch (err) { showMsg("下單失敗", "error"); }
+                } catch (err) { showMsg("下單失敗: " + err.code, "error"); }
                 finally { setIsSubmitting(false); }
-            };
-
-            const resetSystem = async () => {
-                if(!confirm("這將會清除「所有訂單」以及「菜單圖片」，確定嗎？")) return;
-                const batch = window.fb.writeBatch(window.fb.db);
-                orders.forEach(o => batch.delete(window.fb.doc(window.fb.db, 'orders', o.id)));
-                batch.delete(window.fb.doc(window.fb.db, 'config', 'bento'));
-                batch.delete(window.fb.doc(window.fb.db, 'config', 'drink'));
-                await batch.commit();
-                setMenus({ bento: null, drink: null });
-                showMsg("系統已全面重置");
             };
 
             const stats = useMemo(() => {
@@ -236,11 +223,28 @@
 
             if (error) return (
                 <div className="h-screen flex items-center justify-center p-6 bg-red-50 text-center">
-                    <div className="max-w-md bg-white p-8 rounded-[2rem] shadow-2xl border border-red-100">
+                    <div className="max-w-md w-full bg-white p-8 rounded-[2rem] shadow-2xl border border-red-100">
                         <Icon name="AlertCircle" size={48} className="text-red-500 mx-auto mb-4" />
                         <h1 className="text-2xl font-black text-red-900 mb-2">無法連接資料庫</h1>
-                        <p className="text-slate-500 text-sm mb-6 leading-relaxed">{error}</p>
-                        <button onClick={()=>location.reload()} className="bg-red-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-red-700 transition-all">重新連線</button>
+                        <p className="text-slate-500 text-sm mb-6 leading-relaxed bg-red-50 p-4 rounded-xl border border-red-100 font-mono">{error}</p>
+                        
+                        <div className="text-left space-y-4 mb-8">
+                            <h3 className="font-bold text-slate-800 text-sm border-b pb-2">請依照下列步驟排除：</h3>
+                            <div className="flex gap-3 text-xs">
+                                <div className="bg-orange-100 text-orange-700 w-5 h-5 rounded-full flex items-center justify-center shrink-0 font-bold">1</div>
+                                <p><strong>確認已建立資料庫</strong>：前往 Firestore 點擊「建立資料庫」。</p>
+                            </div>
+                            <div className="flex gap-3 text-xs">
+                                <div className="bg-orange-100 text-orange-700 w-5 h-5 rounded-full flex items-center justify-center shrink-0 font-bold">2</div>
+                                <p><strong>開啟匿名登入</strong>：在 Authentication > Sign-in method 開啟「匿名」。</p>
+                            </div>
+                            <div className="flex gap-3 text-xs">
+                                <div className="bg-orange-100 text-orange-700 w-5 h-5 rounded-full flex items-center justify-center shrink-0 font-bold">3</div>
+                                <p><strong>設定安全規則</strong>：在 Firestore > Rules 將規則設為 <code>allow read, write: if true;</code> 並點擊發布。</p>
+                            </div>
+                        </div>
+                        
+                        <button onClick={()=>location.reload()} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold hover:bg-slate-800 transition-all">重新連線</button>
                     </div>
                 </div>
             );
@@ -248,7 +252,7 @@
             if (loading) return (
                 <div className="h-screen flex items-center justify-center flex-col gap-4 text-slate-400">
                     <div className="w-12 h-12 border-4 border-slate-200 border-t-orange-500 rounded-full loading-spinner"></div>
-                    <p class="font-bold">資料同步中...</p>
+                    <p className="font-bold animate-pulse">資料同步中...</p>
                 </div>
             );
 
@@ -257,7 +261,7 @@
                     {msg && <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-2xl shadow-2xl font-black flex items-center gap-2 animate-bounce ${msg.type==='error'?'bg-red-500 text-white':'bg-slate-900 text-white'}`}><Icon name={msg.type==='error'?'AlertCircle':'CheckCircle'}/>{msg.text}</div>}
                     
                     <header className="bg-white border-b h-16 flex items-center justify-between px-4 sticky top-0 z-30 no-print shadow-sm">
-                        <div className="flex items-center gap-2"><div className="bg-orange-500 p-2 rounded-xl text-white shadow-lg"><Icon name="ShoppingCart" /></div><span className="font-black text-xl tracking-tighter">團購小幫手</span></div>
+                        <div className="flex items-center gap-2"><div className="bg-orange-500 p-2 rounded-xl text-white shadow-lg"><Icon name="ShoppingCart" /></div><span className="font-black text-xl tracking-tighter">辦公室訂餐</span></div>
                         <div className="flex gap-2">
                              <button onClick={() => { 
                                 const url = window.location.href;
@@ -267,10 +271,10 @@
                                     const el = document.createElement('textarea');
                                     el.value = url; document.body.appendChild(el); el.select();
                                     document.execCommand('copy'); document.body.removeChild(el);
-                                    showMsg("連結已複製到剪貼簿");
+                                    showMsg("連結已複製");
                                 }
-                             }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs font-black hover:bg-blue-100 flex items-center gap-2"><Icon name="Share2" size={14}/>分享網址</button>
-                             <button onClick={() => setView(view==='order'?'admin':'order')} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-full text-xs font-black hover:bg-slate-200 transition-all">{view==='order'?'統計管理':'返回訂餐'}</button>
+                             }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs font-black flex items-center gap-2"><Icon name="Share2" size={14}/>分享</button>
+                             <button onClick={() => setView(view==='order'?'admin':'order')} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-full text-xs font-black transition-all">{view==='order'?'統計管理':'返回訂餐'}</button>
                         </div>
                     </header>
 
@@ -279,36 +283,33 @@
                             <div className="space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 no-print">
                                     <div className="bg-white p-2 rounded-2xl border shadow-sm text-center">
-                                        <div className="text-[10px] text-orange-600 font-black mb-1 uppercase tracking-widest">🍱 便當菜單 (HD)</div>
-                                        {menus.bento ? <img src={menus.bento} className="w-full rounded-xl shadow-inner"/> : <div className="py-24 text-slate-200 italic text-[10px] border-2 border-dashed border-slate-50 rounded-xl">尚未上傳</div>}
+                                        <div className="text-[10px] text-orange-600 font-black mb-1 uppercase tracking-widest">🍱 便當菜單</div>
+                                        {menus.bento ? <img src={menus.bento} className="w-full rounded-xl"/> : <div className="py-24 text-slate-200 italic text-[10px] border-2 border-dashed border-slate-50 rounded-xl">尚未上傳</div>}
                                     </div>
                                     <div className="bg-white p-2 rounded-2xl border shadow-sm text-center">
-                                        <div className="text-[10px] text-teal-600 font-black mb-1 uppercase tracking-widest">🥤 飲料菜單 (HD)</div>
-                                        {menus.drink ? <img src={menus.drink} className="w-full rounded-xl shadow-inner"/> : <div className="py-24 text-slate-200 italic text-[10px] border-2 border-dashed border-slate-50 rounded-xl">尚未上傳</div>}
+                                        <div className="text-[10px] text-teal-600 font-black mb-1 uppercase tracking-widest">🥤 飲料菜單</div>
+                                        {menus.drink ? <img src={menus.drink} className="w-full rounded-xl"/> : <div className="py-24 text-slate-200 italic text-[10px] border-2 border-dashed border-slate-50 rounded-xl">尚未上傳</div>}
                                     </div>
                                 </div>
 
                                 <section className="bg-white p-8 rounded-[2rem] shadow-xl border no-print">
                                     <h2 className="text-xl font-black mb-8 flex items-center gap-2"><Icon name="Plus" className="text-orange-500"/> 我要訂餐</h2>
                                     <form onSubmit={handleOrder} className="space-y-8">
-                                        <div className="space-y-1">
-                                            <label className="text-[10px] font-black text-slate-400 uppercase ml-4">您的稱呼</label>
-                                            <input required value={name} onChange={e=>setName(e.target.value)} placeholder="例如：王小明" className="w-full text-2xl font-black bg-slate-50 p-6 rounded-2xl outline-none focus:ring-4 focus:ring-orange-100 transition-all"/>
-                                        </div>
+                                        <input required value={name} onChange={e=>setName(e.target.value)} placeholder="您的稱呼" className="w-full text-2xl font-black bg-slate-50 p-6 rounded-2xl outline-none focus:ring-4 focus:ring-orange-100 transition-all"/>
                                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                             <div className="space-y-4">
                                                 <h3 className="text-orange-600 font-black text-sm">🍱 便當項目</h3>
-                                                <input value={bItem} onChange={e=>setBItem(e.target.value)} placeholder="品項名稱" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-bold border-2 border-transparent focus:border-orange-100"/>
+                                                <input value={bItem} onChange={e=>setBItem(e.target.value)} placeholder="品項" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-bold border-2 border-transparent focus:border-orange-100"/>
                                                 <input type="number" value={bPrice} onChange={e=>setBPrice(e.target.value)} placeholder="金額 $" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-black"/>
                                             </div>
                                             <div className="space-y-4">
                                                 <h3 className="text-teal-600 font-black text-sm">🥤 飲料項目</h3>
-                                                <input value={dItem} onChange={e=>setDItem(e.target.value)} placeholder="品項/甜冰" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-bold border-2 border-transparent focus:border-teal-100"/>
+                                                <input value={dItem} onChange={e=>setDItem(e.target.value)} placeholder="品項" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-bold border-2 border-transparent focus:border-teal-100"/>
                                                 <input type="number" value={dPrice} onChange={e=>setDPrice(e.target.value)} placeholder="金額 $" className="w-full bg-slate-50 p-4 rounded-xl outline-none font-black"/>
                                             </div>
                                         </div>
                                         <button disabled={isSubmitting} className="w-full bg-slate-900 text-white py-6 rounded-2xl font-black text-xl shadow-2xl active:scale-95 transition-all">
-                                            {isSubmitting ? "正在送出..." : "確認下單 $" + ((Number(bPrice)||0)+(Number(dPrice)||0))}
+                                            {isSubmitting ? "正在下單..." : "確認送出 $" + ((Number(bPrice)||0)+(Number(dPrice)||0))}
                                         </button>
                                     </form>
                                 </section>
@@ -317,7 +318,7 @@
                                     <h2 className="text-xl font-black mb-6 text-slate-700 flex items-center gap-2">付款進度確認</h2>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         {orders.map(o => (
-                                            <div key={o.id} className={`p-5 rounded-2xl border flex items-center justify-between transition-all shadow-sm ${o.paid?'bg-green-50 border-green-100':'bg-slate-50 border-slate-100'}`}>
+                                            <div key={o.id} className={`p-5 rounded-2xl border flex items-center justify-between transition-all ${o.paid?'bg-green-50 border-green-100':'bg-slate-50 border-slate-100'}`}>
                                                 <div className="min-w-0 pr-2">
                                                     <div className="font-black truncate text-slate-800">{o.name}</div>
                                                     <div className="text-[10px] text-slate-500 font-bold">${o.total}</div>
@@ -334,7 +335,7 @@
                             <div className="printable-area space-y-6">
                                 <div className="print-only text-center border-b-4 border-double border-black pb-4 mb-8">
                                     <h1 className="text-4xl font-black">今日訂購統計清單</h1>
-                                    <p className="font-bold mt-2">日期：{new Date().toLocaleDateString()} | 時間：{new Date().toLocaleTimeString()}</p>
+                                    <p className="font-bold mt-2">日期：{new Date().toLocaleDateString()}</p>
                                 </div>
 
                                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center font-black card-grid">
@@ -346,35 +347,42 @@
                                 </div>
 
                                 <div className="flex justify-between items-center no-print px-2">
-                                    <button onClick={()=>window.print()} className="bg-indigo-600 text-white px-8 py-3 rounded-full font-black flex items-center gap-2 shadow-lg hover:scale-105 transition-all"><Icon name="Printer" size={18}/> 列印統計報表</button>
-                                    <button onClick={resetSystem} className="text-red-500 text-xs font-black flex items-center gap-1 hover:underline"><Icon name="RefreshCw" size={14}/> 全面重置 (含圖片)</button>
+                                    <button onClick={()=>window.print()} className="bg-indigo-600 text-white px-8 py-3 rounded-full font-black flex items-center gap-2 shadow-lg"><Icon name="Printer" size={18}/> 列印報表</button>
+                                    <button onClick={async () => {
+                                        if(!confirm("重置將清空訂單與圖片，確定嗎？")) return;
+                                        const batch = window.fb.writeBatch(window.fb.db);
+                                        orders.forEach(o => batch.delete(window.fb.doc(window.fb.db, 'orders', o.id)));
+                                        batch.delete(window.fb.doc(window.fb.db, 'config', 'bento'));
+                                        batch.delete(window.fb.doc(window.fb.db, 'config', 'drink'));
+                                        await batch.commit();
+                                        showMsg("已重置");
+                                    }} className="text-red-500 text-xs font-black flex items-center gap-1 hover:underline"><Icon name="RefreshCw" size={14}/> 全面重置</button>
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 card-grid">
                                     <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
-                                        <h4 className="font-black mb-4 text-orange-600">🍱 便當項目匯總</h4>
+                                        <h4 className="font-black mb-4 text-orange-600">🍱 便當彙總</h4>
                                         {Object.entries(stats.bc).map(([n,c]) => <div key={n} className="flex justify-between py-2 border-b border-slate-50 text-sm font-bold"><span>{n}</span><span>{c} 份</span></div>)}
                                     </div>
                                     <div className="bg-white p-8 rounded-[2rem] border shadow-sm">
-                                        <h4 className="font-black mb-4 text-teal-600">🥤 飲料項目匯總</h4>
+                                        <h4 className="font-black mb-4 text-teal-600">🥤 飲料彙總</h4>
                                         {Object.entries(stats.dc).map(([n,c]) => <div key={n} className="flex justify-between py-2 border-b border-slate-50 text-sm font-bold"><span>{n}</span><span>{c} 杯</span></div>)}
                                     </div>
                                 </div>
 
                                 <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm">
-                                    <div className="bg-slate-50 px-8 py-4 font-black text-[10px] text-slate-400 uppercase tracking-widest no-print">訂單詳細名冊</div>
                                     <table className="w-full text-left text-sm">
-                                        <thead className="bg-slate-50 border-b font-black text-[10px] text-slate-400 uppercase">
+                                        <thead className="bg-slate-50 border-b font-black text-[10px] text-slate-400">
                                             <tr><th className="px-8 py-5">訂購人</th><th className="px-8 py-5">內容</th><th className="px-8 py-5 text-center">金額</th><th className="px-8 py-5 text-center">付款</th><th className="px-8 py-5 no-print"></th></tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-50">
                                             {orders.map(o => (
                                                 <tr key={o.id}>
                                                     <td className="px-8 py-5 font-black text-slate-800">{o.name}</td>
-                                                    <td className="px-8 py-5 text-slate-500 text-xs font-bold">🍱 {o.bento || '無'} / 🥤 {o.drink || '無'}</td>
+                                                    <td className="px-8 py-5 text-slate-500 text-xs font-bold">🍱 {o.bento} / 🥤 {o.drink}</td>
                                                     <td className="px-8 py-5 text-center font-black">${o.total}</td>
                                                     <td className="px-8 py-5 text-center font-bold text-xs">{o.paid ? <span className="text-green-600">已付</span> : <span className="text-red-500">未付</span>}</td>
-                                                    <td className="px-8 py-5 text-right no-print"><button onClick={async () => { if(confirm("刪除此訂單？")) await window.fb.deleteDoc(window.fb.doc(window.fb.db, 'orders', o.id)); }} className="text-slate-200 hover:text-red-500 transition-colors"><Icon name="Trash2" size={16}/></button></td>
+                                                    <td className="px-8 py-5 text-right no-print"><button onClick={() => window.fb.deleteDoc(window.fb.doc(window.fb.db, 'orders', o.id))} className="text-slate-200 hover:text-red-500 transition-colors"><Icon name="Trash2" size={16}/></button></td>
                                                 </tr>
                                             ))}
                                         </tbody>
@@ -383,14 +391,14 @@
 
                                 <div className="grid grid-cols-2 gap-4 no-print mt-8">
                                     <div className="bg-white p-8 rounded-3xl border text-center shadow-sm">
-                                        <h4 className="font-black text-orange-600 mb-4 flex items-center justify-center gap-2 font-bold"><Icon name="Camera"/> 更換便當菜單</h4>
+                                        <h4 className="font-black text-orange-600 mb-4 flex items-center justify-center gap-2"><Icon name="Camera"/> 更換便當菜單</h4>
                                         <input type="file" className="hidden" id="b-up" onChange={e => compressAndUpload(e, 'bento')} accept="image/*" />
-                                        <button disabled={isUploading} onClick={() => document.getElementById('b-up').click()} className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-xs hover:bg-slate-800 transition-all">拍照上傳</button>
+                                        <button disabled={isUploading} onClick={() => document.getElementById('b-up').click()} className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-xs">拍照上傳</button>
                                     </div>
                                     <div className="bg-white p-8 rounded-3xl border text-center shadow-sm">
-                                        <h4 className="font-black text-teal-600 mb-4 flex items-center justify-center gap-2 font-bold"><Icon name="Camera"/> 更換飲料菜單</h4>
+                                        <h4 className="font-black text-teal-600 mb-4 flex items-center justify-center gap-2"><Icon name="Camera"/> 更換飲料菜單</h4>
                                         <input type="file" className="hidden" id="d-up" onChange={e => compressAndUpload(e, 'drink')} accept="image/*" />
-                                        <button disabled={isUploading} onClick={() => document.getElementById('d-up').click()} className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-xs hover:bg-slate-800 transition-all">拍照上傳</button>
+                                        <button disabled={isUploading} onClick={() => document.getElementById('d-up').click()} className="bg-slate-900 text-white px-10 py-4 rounded-2xl font-black text-xs">拍照上傳</button>
                                     </div>
                                 </div>
                             </div>
