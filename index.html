@@ -1,4 +1,4 @@
- <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
@@ -51,13 +51,14 @@
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 
+        // --- 🔵 請在此處填入您的 Firebase 配置 ---
         let firebaseConfig = {
-            apiKey: "你的API_KEY",
-            authDomain: "你的AUTH_DOMAIN",
-            projectId: "你的PROJECT_ID",
-            storageBucket: "你的STORAGE_BUCKET",
-            messagingSenderId: "你的SENDER_ID",
-            appId: "你的APP_ID"
+            apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
+            authDomain: "order-c3529.firebaseapp.com",
+            projectId: "order-c3529",
+            storageBucket: "order-c3529.firebasestorage.app",
+            messagingSenderId: "700659521697",
+            appId: "1:700659521697:web:e94b9f712409e4c57c38e0"
         };
 
         try {
@@ -70,12 +71,10 @@
             if (firebaseConfig.apiKey === "你的API_KEY") {
                 window.fbError = "【未設定雲端金鑰】請先編輯 index.html 填入您的 Firebase Config。";
             } else {
-                apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
-  authDomain: "order-c3529.firebaseapp.com",
-  projectId: "order-c3529",
-  storageBucket: "order-c3529.firebasestorage.app",
-  messagingSenderId: "700659521697",
-  appId: "1:700659521697:web:e94b9f712409e4c57c38e0"; 
+                const app = initializeApp(firebaseConfig);
+                const auth = getAuth(app);
+                const db = getFirestore(app);
+                const appId = typeof __app_id !== 'undefined' ? __app_id : "office-lunch-v2"; 
                 window.fb = { auth, db, appId, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, writeBatch, signInAnonymously, onAuthStateChanged };
             }
         } catch (error) {
@@ -411,4 +410,4 @@
         root.render(<App />);
     </script>
 </body>
-</html>       
+</html>
