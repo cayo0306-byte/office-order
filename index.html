@@ -15,7 +15,6 @@
         .loading-spinner { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         
-        /* --- STREAMING_CHUNK:Defining print styles... --- */
         @media print {
             header, button, .no-print, input, .fixed { display: none !important; }
             body { background: white !important; color: black !important; }
@@ -165,24 +164,25 @@
                             const canvas = document.createElement('canvas');
                             let w = img.width, h = img.height;
                             
-                            // --- HD 解析度調整 (1200px) ---
                             const max_w = 1200; 
                             if (w > max_w) { h = (max_w/w)*h; w = max_w; }
                             canvas.width = w; canvas.height = h;
                             const ctx = canvas.getContext('2d');
                             ctx.drawImage(img, 0, 0, w, h);
                             
-                            // --- HD 畫質調整 (0.7) ---
                             const base64 = canvas.toDataURL('image/jpeg', 0.7);
                             
                             try {
-                                await window.fb.setDoc(window.fb.doc(window.fb.db, 'config', type), { 
+                                const { db, doc, setDoc } = window.fb;
+                                // 使用強大的 setDoc 覆蓋
+                                await setDoc(doc(db, 'config', type), { 
                                     img: base64, 
                                     time: Date.now() 
                                 });
                                 showMsg("高清菜單更新成功");
                             } catch (err) {
-                                showMsg("上傳失敗: " + err.code, 'error');
+                                console.error("上傳詳情:", err);
+                                showMsg("上傳失敗: 請確認 Firestore Rules 已開放", 'error');
                             } finally {
                                 setIsUploading(false);
                             }
