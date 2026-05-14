@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>辦公室訂餐小幫手 - 完整版</title>
+    <title>辦公室訂餐小幫手 - 極速穩定版</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -14,7 +14,6 @@
         .loading-spinner { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         
-        /* 列印樣式設定 */
         @media print {
             header, button, .no-print, .upload-section, .fixed { display: none !important; }
             body { background: white !important; color: black !important; padding: 0 !important; margin: 0 !important; }
@@ -22,7 +21,6 @@
             .printable-area { display: block !important; width: 100% !important; }
             table { border-collapse: collapse !important; width: 100% !important; border: 2px solid black !important; }
             th, td { border: 1px solid black !important; padding: 8px !important; color: black !important; }
-            .card-grid { display: grid !important; grid-template-cols: repeat(2, 1fr) !important; gap: 10px !important; }
         }
         .print-only { display: none; }
     </style>
@@ -31,10 +29,11 @@
     <div id="root">
         <div class="h-screen flex items-center justify-center flex-col gap-4 text-slate-400">
             <div class="w-12 h-12 border-4 border-slate-200 border-t-orange-500 rounded-full loading-spinner"></div>
-            <p class="font-bold animate-pulse text-sm">正在連線至 Firebase 雲端...</p>
+            <p class="font-bold animate-pulse text-sm">正在連線...</p>
         </div>
     </div>
 
+    <!-- Firebase SDKs -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
@@ -55,7 +54,7 @@
             const db = getFirestore(app);
             window.fb = { auth, db, collection, doc, setDoc, onSnapshot, addDoc, updateDoc, deleteDoc, writeBatch, query, orderBy, signInAnonymously, onAuthStateChanged };
         } catch (e) {
-            window.fbError = "Firebase 初始失敗: " + e.message;
+            console.error("Firebase Init Error");
         }
     </script>
 
@@ -84,45 +83,38 @@
         function App() {
             const [user, setUser] = useState(null);
             const [loading, setLoading] = useState(true);
-            const [error, setError] = useState(window.fbError || null);
             const [view, setView] = useState('order'); 
             const [orders, setOrders] = useState([]);
             const [menus, setMenus] = useState({ bento: null, drink: null });
             const [message, setMessage] = useState(null);
 
-            // 表單狀態
             const [customer, setCustomer] = useState({ name: '', bItem: '', bPrice: '', dItem: '', dPrice: '' });
             const [isSubmitting, setIsSubmitting] = useState(false);
             const [isUploading, setIsUploading] = useState(false);
 
-            // 1. 初始化驗證
             useEffect(() => {
-                const timer = setTimeout(() => {
-                    if (loading && !error) setError("連線逾時。請檢查網域授權或匿名登入是否開啟。");
-                }, 10000);
-
                 const checkFB = setInterval(() => {
                     if (window.fb) {
                         clearInterval(checkFB);
                         const { auth, signInAnonymously, onAuthStateChanged } = window.fb;
-                        signInAnonymously(auth).catch(e => setError("認證失敗: " + e.code));
+                        signInAnonymously(auth).catch(e => console.log("Auth silent error"));
                         onAuthStateChanged(auth, u => { if(u) setUser(u); });
                     }
-                }, 500);
-
-                return () => { clearInterval(checkFB); clearTimeout(timer); };
+                }, 300);
+                return () => clearInterval(checkFB);
             }, []);
 
-            // 2. 數據同步
             useEffect(() => {
                 if (!user || !window.fb) return;
                 const { db, collection, onSnapshot, doc, query, orderBy } = window.fb;
 
+                // 訂單：不再設置錯誤回呼會跳出畫面，保持安靜重連
                 const unsubOrders = onSnapshot(query(collection(db, 'orders'), orderBy('time', 'desc')), s => {
                     setOrders(s.docs.map(d => ({ id: d.id, ...d.data() })));
                     setLoading(false);
-                }, e => setError("資料庫存取被拒: " + e.code));
+                });
 
+                // 菜單：獨立加載
                 const unsubBento = onSnapshot(doc(db, 'config', 'bento'), s => {
                     if(s.exists()) setMenus(prev => ({ ...prev, bento: s.data().img }));
                 });
@@ -138,7 +130,6 @@
                 setTimeout(() => setMessage(null), 3000);
             };
 
-            // 高清圖片處理
             const handleUpload = async (e, type) => {
                 const file = e.target.files[0];
                 if (!file || !window.fb) return;
@@ -152,10 +143,10 @@
                         img.onload = async () => {
                             const canvas = document.createElement('canvas');
                             let w = img.width, h = img.height;
-                            if (w > 1200) { h = (1200/w)*h; w = 1200; }
+                            if (w > 900) { h = (900/w)*h; w = 900; } 
                             canvas.width = w; canvas.height = h;
                             canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-                            const base64 = canvas.toDataURL('image/jpeg', 0.65);
+                            const base64 = canvas.toDataURL('image/jpeg', 0.5); 
                             await window.fb.setDoc(window.fb.doc(window.fb.db, 'config', type), { img: base64, time: Date.now() });
                             showMsg("菜單更新成功！");
                             setIsUploading(false);
@@ -166,7 +157,7 @@
 
             const handleSubmit = async (e) => {
                 e.preventDefault();
-                if (!customer.name || (!customer.bItem && !customer.dItem)) return showMsg("內容不完整", "error");
+                if (!customer.name || (!customer.bItem && !customer.dItem)) return showMsg("請填寫姓名與內容", "error");
                 setIsSubmitting(true);
                 try {
                     const total = (Number(customer.bPrice)||0) + (Number(customer.dPrice)||0);
@@ -178,38 +169,26 @@
                     });
                     setCustomer({ ...customer, bItem: '', bPrice: '', dItem: '', dPrice: '' });
                     showMsg("下單成功！");
-                } catch (err) { showMsg("錯誤: " + err.code, "error"); }
+                } catch (err) { showMsg("失敗", "error"); }
                 finally { setIsSubmitting(false); }
             };
 
-            // 統計邏輯
             const stats = useMemo(() => {
                 let bt = 0, dt = 0, ps = 0;
                 const bc = {}, dc = {};
                 orders.forEach(o => {
-                    bt += o.bPrice; dt += o.dPrice;
-                    if (o.paid) ps += o.total;
+                    bt += (o.bPrice || 0); dt += (o.dPrice || 0);
+                    if (o.paid) ps += (o.total || 0);
                     if (o.bItem) bc[o.bItem] = (bc[o.bItem] || 0) + 1;
                     if (o.dItem) dc[o.dItem] = (dc[o.dItem] || 0) + 1;
                 });
                 return { bt, dt, tt: bt + dt, ps, bc, dc };
             }, [orders]);
 
-            if (error) return (
-                <div className="h-screen flex items-center justify-center p-6 bg-red-50 text-center">
-                    <div className="max-w-md w-full bg-white p-8 rounded-[2rem] shadow-2xl border border-red-100">
-                        <Icon name="AlertCircle" size={48} className="text-red-500 mx-auto mb-4" />
-                        <h1 className="text-xl font-black text-red-900 mb-4">連線診斷報告</h1>
-                        <div className="bg-red-50 p-4 rounded-xl text-left mb-6 font-mono text-xs text-red-700 whitespace-pre-wrap leading-relaxed border border-red-100">{error}</div>
-                        <button onClick={()=>location.reload()} className="w-full bg-slate-900 text-white py-4 rounded-2xl font-bold shadow-lg">嘗試重新連線</button>
-                    </div>
-                </div>
-            );
-
             if (loading) return (
                 <div className="h-screen flex items-center justify-center flex-col gap-4 text-slate-400">
                     <div className="w-12 h-12 border-4 border-slate-200 border-t-orange-500 rounded-full loading-spinner"></div>
-                    <p class="font-bold animate-pulse text-sm">正在同步雲端資料...</p>
+                    <p className="font-bold animate-pulse text-sm">正在同步雲端資料...</p>
                 </div>
             );
 
@@ -231,8 +210,8 @@
                                     document.body.appendChild(el); el.select(); document.execCommand('copy'); document.body.removeChild(el);
                                     showMsg("連結已複製");
                                 }
-                             }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs font-black flex items-center gap-2 transition-all hover:bg-blue-100"><Icon name="Share2" size={14}/>分享</button>
-                             <button onClick={() => setView(view==='order'?'admin':'order')} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-full text-xs font-black transition-all hover:bg-slate-200">{view==='order'?'統計管理':'返回訂餐'}</button>
+                             }} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-full text-xs font-black flex items-center gap-2"><Icon name="Share2" size={14}/>分享</button>
+                             <button onClick={() => setView(view==='order'?'admin':'order')} className="bg-slate-100 text-slate-700 px-4 py-2 rounded-full text-xs font-black">{view==='order'?'統計管理':'返回訂餐'}</button>
                         </div>
                     </header>
 
@@ -241,12 +220,12 @@
                             <div className="space-y-6">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 no-print">
                                     <div className="bg-white p-2 rounded-2xl border shadow-sm text-center">
-                                        <div className="text-[10px] text-orange-600 font-black mb-1 uppercase tracking-widest tracking-tight">🍱 便當菜單 (HD)</div>
-                                        {menus.bento ? <img src={menus.bento} className="w-full rounded-xl shadow-inner"/> : <div className="py-24 text-slate-200 text-xs italic border-2 border-dashed border-slate-50 rounded-xl">尚未上傳</div>}
+                                        <div className="text-[10px] text-orange-600 font-black mb-1">🍱 便當菜單</div>
+                                        {menus.bento ? <img src={menus.bento} className="w-full rounded-xl"/> : <div className="py-24 text-slate-200 text-xs italic border-2 border-dashed border-slate-50 rounded-xl">尚未上傳</div>}
                                     </div>
                                     <div className="bg-white p-2 rounded-2xl border shadow-sm text-center">
-                                        <div className="text-[10px] text-teal-600 font-black mb-1 uppercase tracking-widest tracking-tight">🥤 飲料菜單 (HD)</div>
-                                        {menus.drink ? <img src={menus.drink} className="w-full rounded-xl shadow-inner"/> : <div className="py-24 text-slate-200 text-xs italic border-2 border-dashed border-slate-50 rounded-xl">尚未上傳</div>}
+                                        <div className="text-[10px] text-teal-600 font-black mb-1">🥤 飲料菜單</div>
+                                        {menus.drink ? <img src={menus.drink} className="w-full rounded-xl"/> : <div className="py-24 text-slate-200 text-xs italic border-2 border-dashed border-slate-50 rounded-xl">尚未上傳</div>}
                                     </div>
                                 </div>
 
@@ -275,7 +254,7 @@
                                     </form>
                                 </section>
 
-                                <section className="bg-white p-8 rounded-[2rem] border shadow-sm no-print">
+                                <section className="bg-white p-8 rounded-[2rem] border shadow-sm">
                                     <h2 className="text-xl font-black mb-6 text-slate-700">付款進度確認</h2>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         {orders.map(o => (
