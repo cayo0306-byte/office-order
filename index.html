@@ -177,7 +177,7 @@
                 let bt = 0, dt = 0, ps = 0;
                 const bc = {}, dc = {};
                 orders.forEach(o => {
-                    bt += (o.bPrice || 0); dt += (o.dPrice || 0);
+                    bt += (o.bPrice || 0); dt += (o.drinkPrice || 0);
                     if (o.paid) ps += (o.total || 0);
                     if (o.bItem) bc[o.bItem] = (bc[o.bItem] || 0) + 1;
                     if (o.dItem) dc[o.dItem] = (dc[o.dItem] || 0) + 1;
@@ -319,7 +319,7 @@
                                             {orders.map(o => (
                                                 <tr key={o.id} className="hover:bg-slate-50/50">
                                                     <td className="px-8 py-5 font-black text-slate-800">{o.name}</td>
-                                                    <td className="px-8 py-5 text-slate-600 text-xs font-medium">{o.bItem || '-'} / {o.dItem || '-'}</td>
+                                                    <td className="px-8 py-5 text-slate-600 text-xs font-medium">{o.bItem || '-'} / {o.drink || '-'}</td>
                                                     <td className="px-8 py-5 text-center font-black text-slate-900">${o.total}</td>
                                                     <td className="px-8 py-5 text-center font-bold text-xs">{o.paid ? <span className="text-green-600">已付</span> : <span className="text-red-500 font-black">未付</span>}</td>
                                                     <td className="px-8 py-5 text-right no-print"><button onClick={()=>window.fb.deleteDoc(window.fb.doc(window.fb.db,'orders',o.id))}><Icon name="Trash2" size={16} className="text-slate-200 hover:text-red-500"/></button></td>
