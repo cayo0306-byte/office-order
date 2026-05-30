@@ -26,7 +26,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- Firebase 金鑰設定（若無設定，系統亦可正常儲存菜單至本機） ---
+        // --- Firebase 金鑰設定（若無設定，系統亦可正常儲存菜單與資料至本機） ---
         const firebaseConfig = {
             apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
             authDomain: "order-c3529.firebaseapp.com",
@@ -56,6 +56,7 @@
             const [isProcessingImage, setIsProcessingImage] = useState(false);
             const [usingLocalStorage, setUsingLocalStorage] = useState(false);
             const [editingOrder, setEditingOrder] = useState(null);
+            const [showResetConfirm, setShowResetConfirm] = useState(false); // 重置確認彈窗狀態
 
             // 菜單燈箱放大縮小與拖曳狀態
             const [lightboxImg, setLightboxImg] = useState(null);
@@ -68,6 +69,13 @@
             const [newOrder, setNewOrder] = useState({
                 name: '', item: '', sugar: '半糖', ice: '微冰', note: '', price: '', type: 'beverage', quantity: 1
             });
+
+            // 產生今日日期字串
+            const todayDateStr = useMemo(() => {
+                const d = new Date();
+                const weekDays = ["日", "一", "二", "三", "四", "五", "六"];
+                return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} (星期${weekDays[d.getDay()]})`;
+            }, []);
 
             useEffect(() => {
                 if (usingLocalStorage) {
@@ -93,7 +101,7 @@
                 setCopyStatus(`⏱️ 成功設定 ${hrs > 0 ? `${hrs} 小時 ` : ""}${mins} 分鐘倒數！`);
                 setTimeout(() => setCopyStatus(null), 2500);
 
-                // 同步至 Firebase (具備錯誤攔截，寫入失敗自動平滑降級)
+                // 同步至 Firebase
                 if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                     firebase.firestore().collection('settings').doc(appId).set({ deadline: timeVal }, { merge: true })
                         .catch(err => {
@@ -117,6 +125,38 @@
                             switchToLocalMode("雲端取消設定遭拒。系統已轉用本機處理。");
                         });
                 }
+            };
+
+            // 全面清空重置今日資料
+            const handleResetAll = async () => {
+                // 1. 本地狀態重置
+                setSettings(prev => ({ ...prev, deadline: null }));
+                setOrders([]);
+                localStorage.removeItem('fallback_deadline');
+                localStorage.removeItem('fallback_orders');
+
+                // 2. 雲端同步重置 (若有啟用雲端)
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                    try {
+                        const db = firebase.firestore();
+                        // 移除截止時間設定
+                        await db.collection('settings').doc(appId).set({ deadline: null }, { merge: true });
+                        
+                        // 批次刪除該專案名下的所有訂單
+                        const snapshot = await db.collection('orders').where('appId', '==', appId).get();
+                        const batch = db.batch();
+                        snapshot.docs.forEach(doc => {
+                            batch.delete(doc.ref);
+                        });
+                        await batch.commit();
+                    } catch (err) {
+                        console.warn("雲端資料清空失敗，改為本地完全清空", err);
+                    }
+                }
+
+                setShowResetConfirm(false);
+                setCopyStatus("🧹 今日訂單與倒數時間已成功清空！");
+                setTimeout(() => setCopyStatus(null), 3000);
             };
 
             const formatTimeLeft = () => {
@@ -160,7 +200,7 @@
                         .then((u) => {
                             setUser(u.user);
                             
-                            // 2. 監聽線上訂單 (若權限不夠，會進入 onerror 回呼，此處進行優雅降級)
+                            // 2. 監聽線上訂單
                             db.collection('orders').where('appId', '==', appId)
                                 .onSnapshot(snapshot => {
                                     setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -433,17 +473,17 @@
             };
 
             const copyResult = (type) => {
-                let text = `🏢 辦公室訂餐系統小幫手 🏢\n📦 ${type === 'beverage' ? '飲料' : '餐點'} 結單統計 📦\n`;
+                let text = `🏢 辦公室訂餐系統小幫手 🏢\n📅 訂購日期：${todayDateStr}\n📦 ${type === 'beverage' ? '飲料' : '餐點'} 結單統計 📦\n`;
                 stats.groups.forEach(([l, c]) => text += `● ${l} x ${c}\n`);
                 text += `------------------------\n總計金額：$${stats.totalAmount}`;
                 
-                const textArea = document.createElement("textarea");
-                textArea.value = text;
-                document.body.appendChild(textArea);
-                textArea.select();
+                const ptyTextArea = document.createElement("textarea");
+                ptyTextArea.value = text;
+                document.body.appendChild(ptyTextArea);
+                ptyTextArea.select();
                 document.execCommand('copy');
-                document.body.removeChild(textArea);
-                setCopyStatus(`已複製結單訊息！`);
+                document.body.removeChild(ptyTextArea);
+                setCopyStatus(`已複製當日結單訊息！`);
                 setTimeout(() => setCopyStatus(null), 2000);
             };
 
@@ -500,10 +540,14 @@
             
             return (
                 <div className="min-h-screen pb-20">
+                    {/* 導覽列 */}
                     <nav className="bg-white border-b sticky top-0 z-30 shadow-sm px-6 h-16 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className="bg-blue-600 text-white p-2 rounded-xl font-black text-xs shadow-lg shadow-blue-200">辦公室</div>
-                            <h1 className="text-sm md:text-lg font-black text-slate-800 tracking-tight">辦公室訂餐系統小幫手</h1>
+                            <div className="flex flex-col md:flex-row md:items-center gap-1 md:gap-3">
+                                <h1 className="text-sm md:text-lg font-black text-slate-800 tracking-tight">辦公室訂餐系統小幫手</h1>
+                                <span className="text-[10px] md:text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 md:py-1 rounded-lg">📅 {todayDateStr}</span>
+                            </div>
                         </div>
                         <div className="flex items-center gap-2">
                             <button 
@@ -522,7 +566,7 @@
                     </nav>
 
                     <main className="max-w-5xl mx-auto p-4 space-y-6">
-                        {/* 當開啟本機演示模式時，顯示警示條引導發起人修改 */}
+                        {/* 本機模式警示條 */}
                         {errorMsg && (
                             <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 text-xs text-amber-800 font-medium shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3 animate-fade-in">
                                 <div>
@@ -541,8 +585,9 @@
                             </div>
                         )}
 
+                        {}
                         {/* 控制工具列 */}
-                        <section className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center">
+                        <section className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
                             <div className="flex flex-wrap items-center gap-3">
                                 <div className="flex flex-wrap items-center bg-slate-100 p-1.5 rounded-2xl border gap-1">
                                     <span className="text-xs px-2 text-slate-500 font-bold">設定時間:</span>
@@ -578,8 +623,19 @@
                                     </div>
                                 )}
                             </div>
-                            <div className="flex gap-2 ml-auto">
-                                <button onClick={() => copyResult(activeTab)} className="bg-indigo-600 text-white px-5 py-2 rounded-2xl text-xs font-bold border border-indigo-100 shadow-md active:scale-95 transition-all">複製結單</button>
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => setShowResetConfirm(true)} 
+                                    className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-4 py-2 rounded-2xl text-xs font-black active:scale-95 transition-all flex items-center gap-1"
+                                >
+                                    🧹 重新清空
+                                </button>
+                                <button 
+                                    onClick={() => copyResult(activeTab)} 
+                                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-2xl text-xs font-bold border border-indigo-100 shadow-md active:scale-95 transition-all"
+                                >
+                                    複製結單
+                                </button>
                             </div>
                         </section>
 
@@ -617,6 +673,7 @@
                                 </div>
                             </div>
 
+                            {}
                             {/* 右側訂單區 */}
                             <div className="flex-1 space-y-4">
                                 <div className="flex bg-slate-200 p-1.5 rounded-2xl w-fit">
@@ -737,6 +794,8 @@
                         </section>
                     </main>
 
+                    {}
+                    {/* 菜單放大縮小燈箱 */}
                     {lightboxImg && (
                         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
                             {/* 工具列 */}
@@ -832,6 +891,39 @@
                                         <button type="submit" className="px-5 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700">儲存修改</button>
                                     </div>
                                 </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 自定義安全清空重置確認視窗 (代替 confirm) */}
+                    {showResetConfirm && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                            <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-100 p-6 space-y-4 transform transition-all animate-fade-in">
+                                <div className="text-center space-y-3">
+                                    <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-rose-100 text-rose-600 text-xl">
+                                        ⚠️
+                                    </div>
+                                    <h3 className="text-lg font-black text-slate-800">確定要重新清空今日資料嗎？</h3>
+                                    <p className="text-xs text-slate-500 leading-relaxed">
+                                        此動作將會<strong className="text-rose-600 font-bold">永久刪除</strong>目前系統中的所有訂單，並<strong className="text-rose-600 font-bold">重置倒數時間</strong>。此操作無法復原，請確認大家都已經確認好訂單或匯出備份！
+                                    </p>
+                                </div>
+                                <div className="flex gap-3 justify-center pt-2">
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setShowResetConfirm(false)} 
+                                        className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-all"
+                                    >
+                                        取消
+                                    </button>
+                                    <button 
+                                        type="button" 
+                                        onClick={handleResetAll} 
+                                        className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black transition-all shadow-md shadow-rose-100"
+                                    >
+                                        確定清空
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}
