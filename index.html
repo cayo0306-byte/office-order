@@ -53,6 +53,9 @@
             const [copyStatus, setCopyStatus] = useState(null);
             const [customMin, setCustomMin] = useState(30);
             const [isProcessingImage, setIsProcessingImage] = useState(false);
+            
+            // 新增：偵測是否啟動本機離線降級模式
+            const [usingLocalStorage, setUsingLocalStorage] = useState(false);
 
             // 修改訂單狀態
             const [editingOrder, setEditingOrder] = useState(null);
@@ -69,6 +72,42 @@
                 name: '', item: '', sugar: '半糖', ice: '微冰', note: '', price: '', type: 'beverage', quantity: 1
             });
 
+            // 本機暫存模式：當 Firebase 失敗時，自動儲存至 LocalStorage 防止資料遺失
+            useEffect(() => {
+                if (usingLocalStorage) {
+                    localStorage.setItem('fallback_orders', JSON.stringify(orders));
+                }
+            }, [orders, usingLocalStorage]);
+
+            // 新增：設定與中止截止時間的處理函式
+            const handleSetDeadline = () => {
+                const timeVal = Date.now() + Number(customMin) * 60000;
+                setSettings(prev => ({ ...prev, deadline: timeVal }));
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                    firebase.firestore().collection('settings').doc(appId).set({ deadline: timeVal }, { merge: true });
+                } else {
+                    localStorage.setItem('fallback_deadline', timeVal);
+                }
+            };
+
+            const handleCancelDeadline = () => {
+                setSettings(prev => ({ ...prev, deadline: null }));
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                    firebase.firestore().collection('settings').doc(appId).set({ deadline: null }, { merge: true });
+                } else {
+                    localStorage.removeItem('fallback_deadline');
+                }
+            };
+
+            const formatTimeLeft = () => {
+                if (!settings.deadline) return "";
+                const diff = settings.deadline - now;
+                if (diff <= 0) return "已截止";
+                const mins = Math.floor(diff / 60000);
+                const secs = Math.floor((diff % 60000) / 1000);
+                return `剩餘：${mins}分${secs}秒`;
+            };
+
             useEffect(() => {
                 // 本地優先讀取菜單 (解決無法上傳/沒網路時的菜單讀取問題)
                 const localBevMenu = localStorage.getItem('local_beverage_menu');
@@ -82,8 +121,8 @@
                 }
 
                 if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "您的_API_KEY") {
-                    // 若無金鑰，關閉讀取動畫，啟動 LocalStorage 展示模式
-                    setLoading(false);
+                    // 若無金鑰，切換到本機模式
+                    switchToLocalMode("尚未配置 Firebase 金鑰");
                     return;
                 }
 
@@ -99,15 +138,14 @@
                         .then((u) => {
                             setUser(u.user);
                             
-                            // 2. 監聽線上訂單
+                            // 2. 監聽線上訂單 (若權限不夠，會進入 onerror 回呼，此處進行優雅降級)
                             db.collection('orders').where('appId', '==', appId)
                                 .onSnapshot(snapshot => {
                                     setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
                                     setLoading(false);
                                 }, err => {
-                                    console.error(err);
-                                    setErrorMsg("資料庫讀取失敗！請確認 Firestore Rules 是否設為 allow read, write: if true;");
-                                    setLoading(false);
+                                    console.warn("Firestore error:", err);
+                                    switchToLocalMode("Firebase 讀取失敗 (可能為 Rules 權限不足)。已自動切換至「本機暫存模式」，您可以照常使用！");
                                 });
 
                             // 3. 監聽線上設定
@@ -122,19 +160,40 @@
                                             mealMenu: onlineData.mealMenu || prev.mealMenu
                                         }));
                                     }
+                                }, err => {
+                                    console.warn("Settings fetch failed, fallback to local.");
+                                    const fallbackDeadline = localStorage.getItem('fallback_deadline');
+                                    if (fallbackDeadline) {
+                                        setSettings(prev => ({ ...prev, deadline: Number(fallbackDeadline) }));
+                                    }
                                 });
                         })
                         .catch(err => {
-                            console.error(err);
-                            setErrorMsg("Firebase 登入失敗！原因：" + err.message + " (請檢查是否開啟了 Anonymous 登入)");
-                            setLoading(false);
+                            console.warn("Auth failed:", err);
+                            switchToLocalMode("Firebase 登入失敗。已自動啟用本機離線點餐模式。");
                         });
 
                 } catch (e) {
-                    setErrorMsg("Firebase 初始化錯誤：" + e.message);
-                    setLoading(false);
+                    switchToLocalMode("Firebase 初始化發生錯誤，改用本機模式。");
                 }
             }, []);
+
+            // 優雅降級至本機 LocalStorage 模式的函式
+            const switchToLocalMode = (reason) => {
+                setUsingLocalStorage(true);
+                setErrorMsg(reason);
+                const savedOrders = localStorage.getItem('fallback_orders');
+                if (savedOrders) {
+                    try {
+                        setOrders(JSON.parse(savedOrders));
+                    } catch(e) {}
+                }
+                const savedDeadline = localStorage.getItem('fallback_deadline');
+                if (savedDeadline) {
+                    setSettings(prev => ({ ...prev, deadline: Number(savedDeadline) }));
+                }
+                setLoading(false);
+            };
 
             useEffect(() => {
                 const timer = setInterval(() => setNow(Date.now()), 1000);
@@ -201,8 +260,8 @@
                         [type === 'beverage' ? 'beverageMenu' : 'mealMenu']: compressedBase64
                     }));
 
-                    // 2. 如果已連接 Firebase 則存入雲端
-                    if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                    // 2. 如果已連接 Firebase 且無報錯，則存入雲端
+                    if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                         await firebase.firestore().collection('settings').doc(appId).set({
                             [type === 'beverage' ? 'beverageMenu' : 'mealMenu']: compressedBase64
                         }, { merge: true });
@@ -229,12 +288,15 @@
                 };
 
                 // 線上模式
-                if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                     try {
                         await firebase.firestore().collection('orders').add(orderData);
-                    } catch (err) { console.error(err); }
+                    } catch (err) { 
+                        console.error("Firebase write error, fallback to local save", err); 
+                        setOrders(prev => [...prev, { id: 'local_' + Date.now(), ...orderData }]);
+                    }
                 } else {
-                    // 展示模式，存至 LocalState
+                    // 展示/本機模式，存至 LocalState
                     setOrders(prev => [...prev, { id: 'local_' + Date.now(), ...orderData }]);
                 }
 
@@ -256,10 +318,13 @@
                     quantity: Number(editingOrder.quantity) || 1
                 };
 
-                if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                     try {
                         await firebase.firestore().collection('orders').doc(editingOrder.id).update(updateData);
-                    } catch (err) { console.error("更新訂單失敗", err); }
+                    } catch (err) { 
+                        console.error("更新訂單失敗", err); 
+                        setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...updateData } : o));
+                    }
                 } else {
                     setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...updateData } : o));
                 }
@@ -267,20 +332,26 @@
             };
 
             const handleDeleteOrder = async (orderId) => {
-                if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                     try {
                         await firebase.firestore().collection('orders').doc(orderId).delete();
-                    } catch (err) { console.error(err); }
+                    } catch (err) { 
+                        console.error(err); 
+                        setOrders(prev => prev.filter(o => o.id !== orderId));
+                    }
                 } else {
                     setOrders(prev => prev.filter(o => o.id !== orderId));
                 }
             };
 
             const handleTogglePaid = async (orderId, currentPaid) => {
-                if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                     try {
                         await firebase.firestore().collection('orders').doc(orderId).update({ isPaid: !currentPaid });
-                    } catch (err) { console.error(err); }
+                    } catch (err) { 
+                        console.error(err); 
+                        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isPaid: !o.isPaid } : o));
+                    }
                 } else {
                     setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isPaid: !o.isPaid } : o));
                 }
@@ -429,25 +500,48 @@
                             </button>
                             {settings.deadline && (
                                 <div className={`hidden sm:block px-3 py-1.5 rounded-full text-xs font-black ${isExpired ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600 animate-pulse'}`}>
-                                    {isExpired ? "已截止" : `剩餘：${Math.floor((settings.deadline - now) / 60000)}分`}
+                                    {formatTimeLeft()}
                                 </div>
                             )}
                         </div>
                     </nav>
 
                     <main className="max-w-5xl mx-auto p-4 space-y-6">
+                        {/* 當開啟本機演示模式時，顯示警示條引導發起人修改 */}
+                        {errorMsg && (
+                            <div className="bg-amber-50 border border-amber-300 rounded-2xl p-4 text-xs text-amber-800 font-medium shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-3 animate-fade-in">
+                                <div>
+                                    <p className="font-bold text-sm text-amber-900">⚠️ 雲端即時同步未啟用 (使用本機暫存模式中)</p>
+                                    <p className="mt-1">原因：{errorMsg}</p>
+                                    <p className="mt-1 text-slate-500">此模式下，您的所有設定、訂單與菜單皆會安全儲存於本機瀏覽器。若要與同事同步，請參考下方按鈕的修復步驟。</p>
+                                </div>
+                                <a 
+                                    href="https://console.firebase.google.com/" 
+                                    target="_blank" 
+                                    rel="noreferrer" 
+                                    className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-xl text-xs tracking-wide transition-all shrink-0 shadow-sm"
+                                >
+                                    去 Firebase 修改 Rules
+                                </a>
+                            </div>
+                        )}
+
                         {/* 控制工具列 */}
                         <section className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center">
-                            <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl border">
-                                <span className="text-xs px-2 text-slate-500 font-bold">截止倒數:</span>
-                                <input type="number" value={customMin} onChange={e => setCustomMin(e.target.value)} className="w-12 bg-transparent text-center font-black text-blue-600 focus:outline-none" />
-                                <button onClick={() => {
-                                    const timeVal = Date.now() + customMin * 60000;
-                                    setSettings(prev => ({ ...prev, deadline: timeVal }));
-                                    if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
-                                        firebase.firestore().collection('settings').doc(appId).set({ deadline: timeVal }, { merge: true });
-                                    }
-                                }} className="bg-blue-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold shadow-md active:scale-95 transition-all">設定</button>
+                            {}
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl border">
+                                    <span className="text-xs px-2 text-slate-500 font-bold">設定時間 (分鐘):</span>
+                                    <input type="number" value={customMin} onChange={e => setCustomMin(e.target.value)} className="w-12 bg-transparent text-center font-black text-blue-600 focus:outline-none" />
+                                    <button onClick={handleSetDeadline} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded-xl text-xs font-bold shadow-md active:scale-95 transition-all">
+                                        {settings.deadline ? "重新設定" : "開始倒數"}
+                                    </button>
+                                </div>
+                                {settings.deadline && (
+                                    <button onClick={handleCancelDeadline} className="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-md active:scale-95 transition-all">
+                                        ⏹️ 中止倒數 (取消截止)
+                                    </button>
+                                )}
                             </div>
                             <div className="flex gap-2 ml-auto">
                                 <button onClick={() => copyResult(activeTab)} className="bg-indigo-600 text-white px-5 py-2 rounded-2xl text-xs font-bold border border-indigo-100 shadow-md active:scale-95 transition-all">複製結單</button>
