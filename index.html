@@ -29,16 +29,16 @@
         // --- Firebase 金鑰設定（若無設定，系統亦可正常儲存菜單至本機） ---
         const firebaseConfig = {
             apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
-  authDomain: "order-c3529.firebaseapp.com",
-  projectId: "order-c3529",
-  storageBucket: "order-c3529.firebasestorage.app",
-  messagingSenderId: "700659521697",
-  appId: "1:700659521697:web:e94b9f712409e4c57c38e0"
+            authDomain: "order-c3529.firebaseapp.com",
+            projectId: "order-c3529",
+            storageBucket: "order-c3529.firebasestorage.app",
+            messagingSenderId: "700659521697",
+            appId: "1:700659521697:web:e94b9f712409e4c57c38e0"
         };
 
         const appId = "ntuyun-psych-order-v1";
         
-        const ICE_OPTIONS = ["正常冰", "微冰", "少冰", "去冰"];
+        const ICE_OPTIONS = ["正常冰", "少冰", "微冰", "去冰"];
         const SUGAR_OPTIONS = ["正常糖", "半糖", "微糖", "1分糖", "無糖"];
 
         function App() {
@@ -81,7 +81,7 @@
                     }));
                 }
 
-                if (firebaseConfig.apiKey === "您的_API_KEY") {
+                if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "您的_API_KEY") {
                     // 若無金鑰，關閉讀取動畫，啟動 LocalStorage 展示模式
                     setLoading(false);
                     return;
@@ -202,7 +202,7 @@
                     }));
 
                     // 2. 如果已連接 Firebase 則存入雲端
-                    if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                    if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                         await firebase.firestore().collection('settings').doc(appId).set({
                             [type === 'beverage' ? 'beverageMenu' : 'mealMenu']: compressedBase64
                         }, { merge: true });
@@ -229,7 +229,7 @@
                 };
 
                 // 線上模式
-                if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                     try {
                         await firebase.firestore().collection('orders').add(orderData);
                     } catch (err) { console.error(err); }
@@ -256,7 +256,7 @@
                     quantity: Number(editingOrder.quantity) || 1
                 };
 
-                if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                     try {
                         await firebase.firestore().collection('orders').doc(editingOrder.id).update(updateData);
                     } catch (err) { console.error("更新訂單失敗", err); }
@@ -267,7 +267,7 @@
             };
 
             const handleDeleteOrder = async (orderId) => {
-                if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                     try {
                         await firebase.firestore().collection('orders').doc(orderId).delete();
                     } catch (err) { console.error(err); }
@@ -277,7 +277,7 @@
             };
 
             const handleTogglePaid = async (orderId, currentPaid) => {
-                if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                     try {
                         await firebase.firestore().collection('orders').doc(orderId).update({ isPaid: !currentPaid });
                     } catch (err) { console.error(err); }
@@ -339,14 +339,14 @@
                 const encodedUri = encodeURI(csvContent);
                 const link = document.createElement("a");
                 link.setAttribute("href", encodedUri);
-                link.setAttribute("download", `台大雲林分院精神部訂餐統計_${new Date().toISOString().slice(0, 10)}.csv`);
+                link.setAttribute("download", `辦公室訂餐統計_${new Date().toISOString().slice(0, 10)}.csv`);
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
             };
 
             const copyResult = (type) => {
-                let text = `🏥 台大雲林分院精神醫學部 🏥\n📦 ${type === 'beverage' ? '飲料' : '餐點'} 結單統計 📦\n`;
+                let text = `🏢 辦公室訂餐系統小幫手 🏢\n📦 ${type === 'beverage' ? '飲料' : '餐點'} 結單統計 📦\n`;
                 stats.groups.forEach(([l, c]) => text += `● ${l} x ${c}\n`);
                 text += `------------------------\n總計金額：$${stats.totalAmount}`;
                 
@@ -414,11 +414,10 @@
             
             return (
                 <div className="min-h-screen pb-20">
-                    {}
                     <nav className="bg-white border-b sticky top-0 z-30 shadow-sm px-6 h-16 flex items-center justify-between">
                         <div className="flex items-center gap-3">
-                            <div className="bg-blue-600 text-white p-2 rounded-xl font-black text-xs shadow-lg shadow-blue-200">精神部</div>
-                            <h1 className="text-sm md:text-lg font-black text-slate-800 tracking-tight">台大雲林分院精神醫學部訂餐系統</h1>
+                            <div className="bg-blue-600 text-white p-2 rounded-xl font-black text-xs shadow-lg shadow-blue-200">辦公室</div>
+                            <h1 className="text-sm md:text-lg font-black text-slate-800 tracking-tight">辦公室訂餐系統小幫手</h1>
                         </div>
                         <div className="flex items-center gap-2">
                             <button 
@@ -445,7 +444,7 @@
                                 <button onClick={() => {
                                     const timeVal = Date.now() + customMin * 60000;
                                     setSettings(prev => ({ ...prev, deadline: timeVal }));
-                                    if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                                    if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                                         firebase.firestore().collection('settings').doc(appId).set({ deadline: timeVal }, { merge: true });
                                     }
                                 }} className="bg-blue-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold shadow-md active:scale-95 transition-all">設定</button>
@@ -609,7 +608,6 @@
                         </section>
                     </main>
 
-                    {}
                     {lightboxImg && (
                         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
                             {/* 工具列 */}
