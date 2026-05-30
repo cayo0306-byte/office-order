@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>台大雲林分院精神醫學部訂餐系統</title>
+    <title>辦公室訂餐系統小幫手</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -17,27 +17,27 @@
         body { font-family: 'Inter', 'Microsoft JhengHei', sans-serif; background-color: #f8fafc; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .drag-active { border-color: #2563eb !important; background-color: #eff6ff !important; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- 請將您的 Firebase 金鑰貼在下方 ---
+        // --- Firebase 金鑰設定（若無設定，系統亦可正常儲存菜單至本機） ---
         const firebaseConfig = {
             apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
-            authDomain: "order-c3529.firebaseapp.com",
-            projectId: "order-c3529",
-            storageBucket: "order-c3529.firebasestorage.app",
-            messagingSenderId: "700659521697",
-            appId: "1:700659521697:web:e94b9f712409e4c57c38e0"
+  authDomain: "order-c3529.firebaseapp.com",
+  projectId: "order-c3529",
+  storageBucket: "order-c3529.firebasestorage.app",
+  messagingSenderId: "700659521697",
+  appId: "1:700659521697:web:e94b9f712409e4c57c38e0"
         };
 
         const appId = "ntuyun-psych-order-v1";
         
-        // 使用者指定的冰量與糖度選項
         const ICE_OPTIONS = ["正常冰", "微冰", "少冰", "去冰"];
         const SUGAR_OPTIONS = ["正常糖", "半糖", "微糖", "1分糖", "無糖"];
 
@@ -54,8 +54,15 @@
             const [customMin, setCustomMin] = useState(30);
             const [isProcessingImage, setIsProcessingImage] = useState(false);
 
-            // 修改狀態
+            // 修改訂單狀態
             const [editingOrder, setEditingOrder] = useState(null);
+
+            // 菜單燈箱放大縮小與拖曳狀態
+            const [lightboxImg, setLightboxImg] = useState(null);
+            const [zoomScale, setZoomScale] = useState(1);
+            const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
+            const [isDragging, setIsDragging] = useState(false);
+            const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
             // 新增訂單初始狀態
             const [newOrder, setNewOrder] = useState({
@@ -63,8 +70,19 @@
             });
 
             useEffect(() => {
+                // 本地優先讀取菜單 (解決無法上傳/沒網路時的菜單讀取問題)
+                const localBevMenu = localStorage.getItem('local_beverage_menu');
+                const localMealMenu = localStorage.getItem('local_meal_menu');
+                if (localBevMenu || localMealMenu) {
+                    setSettings(prev => ({
+                        ...prev,
+                        beverageMenu: localBevMenu || prev.beverageMenu,
+                        mealMenu: localMealMenu || prev.mealMenu
+                    }));
+                }
+
                 if (firebaseConfig.apiKey === "您的_API_KEY") {
-                    setErrorMsg("尚未設定 Firebase 金鑰。請將金鑰貼入 index.html 第 25 行。");
+                    // 若無金鑰，關閉讀取動畫，啟動 LocalStorage 展示模式
                     setLoading(false);
                     return;
                 }
@@ -81,7 +99,7 @@
                         .then((u) => {
                             setUser(u.user);
                             
-                            // 2. 監聽訂單
+                            // 2. 監聽線上訂單
                             db.collection('orders').where('appId', '==', appId)
                                 .onSnapshot(snapshot => {
                                     setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -92,10 +110,18 @@
                                     setLoading(false);
                                 });
 
-                            // 3. 監聽設定
+                            // 3. 監聽線上設定
                             db.collection('settings').doc(appId)
                                 .onSnapshot(doc => {
-                                    if (doc.exists) setSettings(doc.data());
+                                    if (doc.exists) {
+                                        const onlineData = doc.data();
+                                        setSettings(prev => ({
+                                            ...prev,
+                                            ...onlineData,
+                                            beverageMenu: onlineData.beverageMenu || prev.beverageMenu,
+                                            mealMenu: onlineData.mealMenu || prev.mealMenu
+                                        }));
+                                    }
                                 });
                         })
                         .catch(err => {
@@ -115,6 +141,24 @@
                 return () => clearInterval(timer);
             }, []);
 
+            // 全域鍵盤貼上事件監聽 (可讓使用者直接在網頁上貼上螢幕截圖 Ctrl+V)
+            useEffect(() => {
+                const handleGlobalPaste = async (e) => {
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                            const file = items[i].getAsFile();
+                            // 自動辨識目前在哪個 Tab，就把截圖更新至該 Tab 菜單
+                            handleImageProcess(file, activeTab);
+                            break;
+                        }
+                    }
+                };
+                window.addEventListener('paste', handleGlobalPaste);
+                return () => window.removeEventListener('paste', handleGlobalPaste);
+            }, [activeTab]);
+
             const isExpired = settings.deadline ? now > settings.deadline : false;
 
             const compressImage = (file) => {
@@ -128,7 +172,7 @@
                             const canvas = document.createElement('canvas');
                             let width = img.width;
                             let height = img.height;
-                            const MAX_WIDTH = 1000;
+                            const MAX_WIDTH = 800; // 降低解析度以確保上傳順暢
                             if (width > MAX_WIDTH) {
                                 height = (MAX_WIDTH / width) * height;
                                 width = MAX_WIDTH;
@@ -137,23 +181,34 @@
                             canvas.height = height;
                             const ctx = canvas.getContext('2d');
                             ctx.drawImage(img, 0, 0, width, height);
-                            resolve(canvas.toDataURL('image/jpeg', 0.6));
+                            // 壓縮成 0.5 畫質
+                            resolve(canvas.toDataURL('image/jpeg', 0.5));
                         };
                     };
                 });
             };
 
-            const handleImageUpload = async (e, type) => {
-                const file = e.target.files[0];
+            const handleImageProcess = async (file, type) => {
                 if (!file) return;
                 setIsProcessingImage(true);
                 try {
                     const compressedBase64 = await compressImage(file);
-                    await firebase.firestore().collection('settings').doc(appId).set({
+                    
+                    // 1. 同步保存至本地 (確保離線或無 Firebase 也能看到)
+                    localStorage.setItem(`local_${type}_menu`, compressedBase64);
+                    setSettings(prev => ({
+                        ...prev,
                         [type === 'beverage' ? 'beverageMenu' : 'mealMenu']: compressedBase64
-                    }, { merge: true });
+                    }));
+
+                    // 2. 如果已連接 Firebase 則存入雲端
+                    if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                        await firebase.firestore().collection('settings').doc(appId).set({
+                            [type === 'beverage' ? 'beverageMenu' : 'mealMenu']: compressedBase64
+                        }, { merge: true });
+                    }
                 } catch (err) {
-                    console.error(err);
+                    console.error("圖片處理失敗", err);
                 } finally {
                     setIsProcessingImage(false);
                 }
@@ -162,51 +217,82 @@
             const handleAddOrder = async (e) => {
                 e.preventDefault();
                 if (isExpired || !newOrder.name || !newOrder.item || !newOrder.price) return;
-                try {
-                    await firebase.firestore().collection('orders').add({
-                        ...newOrder,
-                        appId,
-                        type: activeTab,
-                        price: Number(newOrder.price),
-                        quantity: Number(newOrder.quantity) || 1,
-                        createdAt: Date.now(),
-                        isPaid: false
-                    });
-                    setNewOrder({ ...newOrder, item: '', price: '', note: '', sugar: '半糖', ice: '微冰', quantity: 1 });
-                    setIsAdding(false);
-                } catch (err) { console.error(err); }
+                
+                const orderData = {
+                    ...newOrder,
+                    appId,
+                    type: activeTab,
+                    price: Number(newOrder.price),
+                    quantity: Number(newOrder.quantity) || 1,
+                    createdAt: Date.now(),
+                    isPaid: false
+                };
+
+                // 線上模式
+                if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                    try {
+                        await firebase.firestore().collection('orders').add(orderData);
+                    } catch (err) { console.error(err); }
+                } else {
+                    // 展示模式，存至 LocalState
+                    setOrders(prev => [...prev, { id: 'local_' + Date.now(), ...orderData }]);
+                }
+
+                setNewOrder({ ...newOrder, item: '', price: '', note: '', sugar: '半糖', ice: '微冰', quantity: 1 });
+                setIsAdding(false);
             };
 
             const handleUpdateOrder = async (e) => {
                 e.preventDefault();
                 if (!editingOrder) return;
-                try {
-                    await firebase.firestore().collection('orders').doc(editingOrder.id).update({
-                        name: editingOrder.name,
-                        item: editingOrder.item,
-                        sugar: editingOrder.sugar || '半糖',
-                        ice: editingOrder.ice || '微冰',
-                        note: editingOrder.note || '',
-                        price: Number(editingOrder.price),
-                        quantity: Number(editingOrder.quantity) || 1
-                    });
-                    setEditingOrder(null);
-                } catch (err) {
-                    console.error("更新訂單失敗", err);
+                
+                const updateData = {
+                    name: editingOrder.name,
+                    item: editingOrder.item,
+                    sugar: editingOrder.sugar || '半糖',
+                    ice: editingOrder.ice || '微冰',
+                    note: editingOrder.note || '',
+                    price: Number(editingOrder.price),
+                    quantity: Number(editingOrder.quantity) || 1
+                };
+
+                if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                    try {
+                        await firebase.firestore().collection('orders').doc(editingOrder.id).update(updateData);
+                    } catch (err) { console.error("更新訂單失敗", err); }
+                } else {
+                    setOrders(prev => prev.map(o => o.id === editingOrder.id ? { ...o, ...updateData } : o));
+                }
+                setEditingOrder(null);
+            };
+
+            const handleDeleteOrder = async (orderId) => {
+                if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                    try {
+                        await firebase.firestore().collection('orders').doc(orderId).delete();
+                    } catch (err) { console.error(err); }
+                } else {
+                    setOrders(prev => prev.filter(o => o.id !== orderId));
+                }
+            };
+
+            const handleTogglePaid = async (orderId, currentPaid) => {
+                if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                    try {
+                        await firebase.firestore().collection('orders').doc(orderId).update({ isPaid: !currentPaid });
+                    } catch (err) { console.error(err); }
+                } else {
+                    setOrders(prev => prev.map(o => o.id === orderId ? { ...o, isPaid: !o.isPaid } : o));
                 }
             };
 
             const stats = useMemo(() => {
                 const filtered = orders.filter(o => o.type === activeTab);
                 
-                // 總額與已付金額需乘上數量
                 const totalAmount = orders.reduce((sum, o) => sum + ((Number(o.price) || 0) * (Number(o.quantity) || 1)), 0);
                 const paidAmount = orders.filter(o => o.isPaid).reduce((sum, o) => sum + ((Number(o.price) || 0) * (Number(o.quantity) || 1)), 0);
-                
-                // 計算總數量 (所有品項的 quantity 總和)
                 const totalCount = orders.reduce((sum, o) => sum + (Number(o.quantity) || 1), 0);
                 
-                // 彙整統計分組
                 const groups = filtered.reduce((acc, o) => {
                     const key = o.type === 'beverage' 
                         ? `${o.item} (${o.sugar}/${o.ice})` 
@@ -225,6 +311,40 @@
                 };
             }, [orders, activeTab]);
 
+            const handleExportCSV = () => {
+                // 定義 CSV 欄位標題
+                const headers = ["訂購類別", "訂購者名字", "訂購項目", "細項(糖度/冰量/備註)", "單價", "數量", "總金額", "是否付款"];
+                
+                // 轉換訂單資料
+                const rows = orders.map(o => {
+                    const details = o.type === 'beverage' ? `${o.sugar}/${o.ice}` : (o.note || '無');
+                    const subtotal = (Number(o.price) || 0) * (Number(o.quantity) || 1);
+                    return [
+                        o.type === 'beverage' ? '飲料' : '餐點',
+                        o.name || '',
+                        o.item || '',
+                        details,
+                        o.price || 0,
+                        o.quantity || 1,
+                        subtotal,
+                        o.isPaid ? '已付款' : '未付款'
+                    ];
+                });
+
+                // 產生 CSV 字串 (並加入 UTF-8 BOM '\uFEFF' 防止 Excel 亂碼)
+                let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
+                csvContent += [headers.join(","), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+
+                // 下載 CSV 檔案
+                const encodedUri = encodeURI(csvContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", `台大雲林分院精神部訂餐統計_${new Date().toISOString().slice(0, 10)}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
             const copyResult = (type) => {
                 let text = `🏥 台大雲林分院精神醫學部 🏥\n📦 ${type === 'beverage' ? '飲料' : '餐點'} 結單統計 📦\n`;
                 stats.groups.forEach(([l, c]) => text += `● ${l} x ${c}\n`);
@@ -240,31 +360,80 @@
                 setTimeout(() => setCopyStatus(null), 2000);
             };
 
+            const openLightbox = (imgSrc) => {
+                setLightboxImg(imgSrc);
+                setZoomScale(1);
+                setPanOffset({ x: 0, y: 0 });
+            };
+
+            const closeLightbox = () => {
+                setLightboxImg(null);
+            };
+
+            const handleZoom = (amount) => {
+                setZoomScale(prev => Math.max(0.5, Math.min(4, prev + amount)));
+            };
+
+            const handleMouseDown = (e) => {
+                setIsDragging(true);
+                setDragStart({ x: e.clientX - panOffset.x, y: e.clientY - panOffset.y });
+            };
+
+            const handleMouseMove = (e) => {
+                if (!isDragging) return;
+                setPanOffset({
+                    x: e.clientX - dragStart.x,
+                    y: e.clientY - dragStart.y
+                });
+            };
+
+            const handleMouseUpOrLeave = () => {
+                setIsDragging(false);
+            };
+
+            // 支援手機觸控手勢
+            const handleTouchStart = (e) => {
+                if (e.touches.length === 1) {
+                    setIsDragging(true);
+                    setDragStart({ 
+                        x: e.touches[0].clientX - panOffset.x, 
+                        y: e.touches[0].clientY - panOffset.y 
+                    });
+                }
+            };
+
+            const handleTouchMove = (e) => {
+                if (!isDragging || e.touches.length !== 1) return;
+                setPanOffset({
+                    x: e.touches[0].clientX - dragStart.x,
+                    y: e.touches[0].clientY - dragStart.y
+                });
+            };
+
             if (loading) return <div className="h-screen flex items-center justify-center text-slate-400 animate-pulse font-bold">系統連線中...</div>;
             
-            if (errorMsg) return (
-                <div className="h-screen flex flex-col items-center justify-center p-6 text-center">
-                    <div className="bg-red-50 text-red-600 p-8 rounded-3xl border border-red-100 shadow-xl max-w-md">
-                        <div className="text-4xl mb-4">⚠️</div>
-                        <h2 className="text-xl font-bold mb-4">連線發生錯誤</h2>
-                        <p className="text-sm bg-white p-4 rounded-xl border border-red-200 text-left mb-6 break-words">{errorMsg}</p>
-                        <button onClick={() => location.reload()} className="bg-red-600 text-white px-6 py-2 rounded-xl font-bold hover:bg-red-700 transition-all">重新整理</button>
-                    </div>
-                </div>
-            );
-
             return (
                 <div className="min-h-screen pb-20">
+                    {}
                     <nav className="bg-white border-b sticky top-0 z-30 shadow-sm px-6 h-16 flex items-center justify-between">
                         <div className="flex items-center gap-3">
                             <div className="bg-blue-600 text-white p-2 rounded-xl font-black text-xs shadow-lg shadow-blue-200">精神部</div>
-                            <h1 className="text-lg font-black text-slate-800 tracking-tight">台大雲林分院精神醫學部訂餐系統</h1>
+                            <h1 className="text-sm md:text-lg font-black text-slate-800 tracking-tight">台大雲林分院精神醫學部訂餐系統</h1>
                         </div>
-                        {settings.deadline && (
-                            <div className={`px-4 py-1.5 rounded-full text-xs font-black ${isExpired ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600 animate-pulse'}`}>
-                                {isExpired ? "已截止" : `剩餘：${Math.floor((settings.deadline - now) / 60000)}分`}
-                            </div>
-                        )}
+                        <div className="flex items-center gap-2">
+                            <button 
+                                onClick={handleExportCSV} 
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 md:px-4 md:py-2 rounded-xl text-xs font-black shadow-md flex items-center gap-1 transition-all"
+                                title="下載 Microsoft Excel 可直接開啟的 CSV 報表"
+                            >
+                                📊 匯出完整 CSV
+                            </button>
+                            {settings.deadline && (
+                                <div className={`hidden sm:block px-3 py-1.5 rounded-full text-xs font-black ${isExpired ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600 animate-pulse'}`}>
+                                    {isExpired ? "已截止" : `剩餘：${Math.floor((settings.deadline - now) / 60000)}分`}
+                                </div>
+                            )}
+                        </div>
                     </nav>
 
                     <main className="max-w-5xl mx-auto p-4 space-y-6">
@@ -273,7 +442,13 @@
                             <div className="flex items-center bg-slate-100 p-1.5 rounded-2xl border">
                                 <span className="text-xs px-2 text-slate-500 font-bold">截止倒數:</span>
                                 <input type="number" value={customMin} onChange={e => setCustomMin(e.target.value)} className="w-12 bg-transparent text-center font-black text-blue-600 focus:outline-none" />
-                                <button onClick={() => firebase.firestore().collection('settings').doc(appId).set({ deadline: Date.now() + customMin * 60000 }, { merge: true })} className="bg-blue-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold shadow-md active:scale-95 transition-all">設定</button>
+                                <button onClick={() => {
+                                    const timeVal = Date.now() + customMin * 60000;
+                                    setSettings(prev => ({ ...prev, deadline: timeVal }));
+                                    if (firebaseConfig.apiKey !== "您的_API_KEY") {
+                                        firebase.firestore().collection('settings').doc(appId).set({ deadline: timeVal }, { merge: true });
+                                    }
+                                }} className="bg-blue-600 text-white px-4 py-1.5 rounded-xl text-xs font-bold shadow-md active:scale-95 transition-all">設定</button>
                             </div>
                             <div className="flex gap-2 ml-auto">
                                 <button onClick={() => copyResult(activeTab)} className="bg-indigo-600 text-white px-5 py-2 rounded-2xl text-xs font-bold border border-indigo-100 shadow-md active:scale-95 transition-all">複製結單</button>
@@ -289,17 +464,36 @@
                         </div>
 
                         <div className="flex flex-col md:flex-row gap-6">
-                            {/* 左側菜單區 */}
+                            {/* 左側菜單區 (含拖曳與點擊上傳) */}
                             <div className="md:w-1/3 space-y-4">
-                                <MenuBox title="🥤 飲料菜單" img={settings.beverageMenu} onUpload={e => handleImageUpload(e, 'beverage')} processing={isProcessingImage} />
-                                <MenuBox title="🍱 餐點菜單" img={settings.mealMenu} onUpload={e => handleImageUpload(e, 'meal')} processing={isProcessingImage} />
+                                <MenuBox 
+                                    title="🥤 飲料菜單" 
+                                    img={settings.beverageMenu} 
+                                    onUpload={(file) => handleImageProcess(file, 'beverage')} 
+                                    processing={isProcessingImage} 
+                                    onImageClick={openLightbox}
+                                />
+                                <MenuBox 
+                                    title="🍱 餐點菜單" 
+                                    img={settings.mealMenu} 
+                                    onUpload={(file) => handleImageProcess(file, 'meal')} 
+                                    processing={isProcessingImage} 
+                                    onImageClick={openLightbox}
+                                />
+                                <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-xs text-blue-700 font-bold space-y-1">
+                                    <p>💡 實用小秘訣：</p>
+                                    <ul className="list-disc pl-4 space-y-1">
+                                        <li>在網頁直接按 <b>Ctrl + V</b> 可以直接上傳貼上您的截圖！</li>
+                                        <li>點擊菜單縮圖可開啟<b>高畫質無損放大鏡模式</b>，方便比對小字。</li>
+                                    </ul>
+                                </div>
                             </div>
 
                             {/* 右側訂單區 */}
                             <div className="flex-1 space-y-4">
                                 <div className="flex bg-slate-200 p-1.5 rounded-2xl w-fit">
-                                    <button onClick={() => setActiveTab('beverage')} className={`px-8 py-2.5 rounded-xl text-sm font-black transition-all ${activeTab === 'beverage' ? 'bg-white text-blue-600 shadow-md' : 'text-slate-500'}`}>飲料</button>
-                                    <button onClick={() => setActiveTab('meal')} className={`px-8 py-2.5 rounded-xl text-sm font-black transition-all ${activeTab === 'meal' ? 'bg-white text-orange-600 shadow-md' : 'text-slate-500'}`}>餐點</button>
+                                    <button onClick={() => setActiveTab('beverage')} className={`px-8 py-2.5 rounded-xl text-sm font-black transition-all ${activeTab === 'beverage' ? 'bg-white text-blue-600 shadow-md' : 'text-slate-500'}`}>飲料部</button>
+                                    <button onClick={() => setActiveTab('meal')} className={`px-8 py-2.5 rounded-xl text-sm font-black transition-all ${activeTab === 'meal' ? 'bg-white text-orange-600 shadow-md' : 'text-slate-500'}`}>餐點部</button>
                                 </div>
 
                                 <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
@@ -355,35 +549,41 @@
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
-                                                {orders.filter(o => o.type === activeTab).map(o => (
-                                                    <tr key={o.id} className="hover:bg-slate-50/80 transition-colors">
-                                                        <td className="px-6 py-4 font-black text-slate-700">{o.name}</td>
-                                                        <td className="px-6 py-4">
-                                                            <div className="font-bold text-slate-800">{o.item}</div>
-                                                            <div className="text-[10px] text-slate-400 mt-1 font-bold bg-slate-100 w-fit px-2 py-0.5 rounded-full">
-                                                                {o.type === 'beverage' ? `${o.sugar} / ${o.ice}` : o.note || '無備註'}
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center font-black text-slate-600">
-                                                            x {o.quantity || 1}
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <div className="font-bold text-slate-500 text-xs">${o.price}</div>
-                                                            <div className="font-black text-slate-900">${(o.price || 0) * (o.quantity || 1)}</div>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-center">
-                                                            <button onClick={() => firebase.firestore().collection('orders').doc(o.id).update({ isPaid: !o.isPaid })} className={`px-4 py-1 rounded-full text-[10px] font-black shadow-sm transition-all ${o.isPaid ? 'bg-emerald-500 text-white' : 'bg-red-50 text-red-500 border border-red-100'}`}>
-                                                                {o.isPaid ? '已付' : '未付'}
-                                                            </button>
-                                                        </td>
-                                                        <td className="px-6 py-4 text-right">
-                                                            <div className="flex justify-end gap-2">
-                                                                <button onClick={() => setEditingOrder({...o})} className="text-slate-400 hover:text-blue-600 transition-all font-bold" title="修改">✏️</button>
-                                                                <button onClick={() => firebase.firestore().collection('orders').doc(o.id).delete()} className="text-slate-300 hover:text-red-500 transition-all" title="刪除">🗑️</button>
-                                                            </div>
-                                                        </td>
+                                                {orders.filter(o => o.type === activeTab).length === 0 ? (
+                                                    <tr>
+                                                        <td colSpan="6" className="text-center py-8 text-slate-400 italic">尚無任何訂單項目</td>
                                                     </tr>
-                                                ))}
+                                                ) : (
+                                                    orders.filter(o => o.type === activeTab).map(o => (
+                                                        <tr key={o.id} className="hover:bg-slate-50/80 transition-colors">
+                                                            <td className="px-6 py-4 font-black text-slate-700">{o.name}</td>
+                                                            <td className="px-6 py-4">
+                                                                <div className="font-bold text-slate-800">{o.item}</div>
+                                                                <div className="text-[10px] text-slate-400 mt-1 font-bold bg-slate-100 w-fit px-2 py-0.5 rounded-full">
+                                                                    {o.type === 'beverage' ? `${o.sugar} / ${o.ice}` : o.note || '無備註'}
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-center font-black text-slate-600">
+                                                                x {o.quantity || 1}
+                                                            </td>
+                                                            <td className="px-6 py-4 text-center">
+                                                                <div className="font-bold text-slate-500 text-xs">${o.price}</div>
+                                                                <div className="font-black text-slate-900">${(o.price || 0) * (o.quantity || 1)}</div>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-center">
+                                                                <button onClick={() => handleTogglePaid(o.id, o.isPaid)} className={`px-4 py-1 rounded-full text-[10px] font-black shadow-sm transition-all ${o.isPaid ? 'bg-emerald-500 text-white' : 'bg-red-50 text-red-500 border border-red-100'}`}>
+                                                                    {o.isPaid ? '已付' : '未付'}
+                                                                </button>
+                                                            </td>
+                                                            <td className="px-6 py-4 text-right">
+                                                                <div className="flex justify-end gap-2">
+                                                                    <button onClick={() => setEditingOrder({...o})} className="text-slate-400 hover:text-blue-600 transition-all font-bold" title="修改">✏️</button>
+                                                                    <button onClick={() => handleDeleteOrder(o.id)} className="text-slate-300 hover:text-red-500 transition-all" title="刪除">🗑️</button>
+                                                                </div>
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
@@ -395,15 +595,58 @@
                         <section className="bg-white p-6 rounded-3xl border border-slate-200">
                             <h3 className="font-black text-slate-700 mb-5 flex items-center gap-2">📊 彙整統計摘要</h3>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {stats.groups.map(([l, c]) => (
-                                    <div key={l} className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 group hover:border-blue-200 transition-all">
-                                        <span className="text-sm text-slate-600 font-bold">{l}</span>
-                                        <span className="font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-lg">x {c}</span>
-                                    </div>
-                                ))}
+                                {stats.groups.length === 0 ? (
+                                    <div className="col-span-full text-center text-slate-400 italic py-4">無統計資訊</div>
+                                ) : (
+                                    stats.groups.map(([l, c]) => (
+                                        <div key={l} className="flex justify-between items-center bg-slate-50 p-4 rounded-2xl border border-slate-100 group hover:border-blue-200 transition-all">
+                                            <span className="text-sm text-slate-600 font-bold">{l}</span>
+                                            <span className="font-black text-blue-600 bg-blue-50 px-3 py-1 rounded-lg">x {c}</span>
+                                        </div>
+                                    ))
+                                )}
                             </div>
                         </section>
                     </main>
+
+                    {}
+                    {lightboxImg && (
+                        <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
+                            {/* 工具列 */}
+                            <div className="absolute top-4 right-4 flex gap-3 z-50 bg-slate-800/80 p-2.5 rounded-2xl border border-slate-700 shadow-xl">
+                                <button onClick={() => handleZoom(0.25)} className="text-white bg-slate-700 hover:bg-slate-600 p-2 rounded-xl text-xs font-black transition-all">🔍 放大 (+)</button>
+                                <button onClick={() => handleZoom(-0.25)} className="text-white bg-slate-700 hover:bg-slate-600 p-2 rounded-xl text-xs font-black transition-all">🔍 縮小 (-)</button>
+                                <button onClick={() => { setZoomScale(1); setPanOffset({ x: 0, y: 0 }); }} className="text-white bg-slate-700 hover:bg-slate-600 p-2 rounded-xl text-xs font-black transition-all">還原 (1:1)</button>
+                                <button onClick={closeLightbox} className="text-white bg-red-600 hover:bg-red-500 p-2 rounded-xl text-xs font-black transition-all">✕ 關閉</button>
+                            </div>
+
+                            {/* 拖曳與滾動視窗 */}
+                            <div 
+                                className="w-full h-full flex items-center justify-center overflow-hidden cursor-grab active:cursor-grabbing"
+                                onMouseDown={handleMouseDown}
+                                onMouseMove={handleMouseMove}
+                                onMouseUp={handleMouseUpOrLeave}
+                                onMouseLeave={handleMouseUpOrLeave}
+                                onTouchStart={handleTouchStart}
+                                onTouchMove={handleTouchMove}
+                                onTouchEnd={handleMouseUpOrLeave}
+                            >
+                                <img 
+                                    src={lightboxImg} 
+                                    alt="放大預覽菜單" 
+                                    draggable="false"
+                                    className="max-w-full max-h-full object-contain pointer-events-none transition-transform duration-100 ease-out"
+                                    style={{
+                                        transform: `translate(${panOffset.x}px, ${panOffset.y}px) scale(${zoomScale})`,
+                                    }}
+                                />
+                            </div>
+                            
+                            <div className="absolute bottom-4 text-center text-slate-400 text-xs font-bold pointer-events-none">
+                                💡 提示：您可以使用滑鼠左鍵/觸控螢幕「按住並拖曳」來移動圖片視角
+                            </div>
+                        </div>
+                    )}
 
                     {/* 修改訂單彈出視窗 */}
                     {editingOrder && (
@@ -486,21 +729,77 @@
             );
         }
 
-        function MenuBox({ title, img, onUpload, processing }) {
+        function MenuBox({ title, img, onUpload, processing, onImageClick }) {
+            const [isDragOver, setIsDragOver] = useState(false);
+            const fileInputRef = useRef(null);
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setIsDragOver(true);
+            };
+
+            const handleDragLeave = () => {
+                setIsDragOver(false);
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                setIsDragOver(false);
+                const files = e.dataTransfer.files;
+                if (files && files[0]) {
+                    onUpload(files[0]);
+                }
+            };
+
+            const handleFileChange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    onUpload(file);
+                }
+            };
+
             return (
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+                <div 
+                    className={`bg-white rounded-3xl shadow-sm border-2 transition-all overflow-hidden ${isDragOver ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                >
                     <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
                         <span className="text-xs font-black text-slate-600">{title}</span>
-                        <label className="text-[10px] bg-blue-600 text-white px-3 py-1.5 rounded-xl cursor-pointer hover:bg-blue-700 font-black shadow-md shadow-blue-100">
-                            {processing ? '壓縮中...' : '更新'}
-                            <input type="file" className="hidden" accept="image/*" onChange={onUpload} disabled={processing} />
-                        </label>
+                        <button 
+                            type="button"
+                            onClick={() => fileInputRef.current.click()}
+                            className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-xl cursor-pointer font-black shadow-md shadow-blue-100 transition-colors"
+                        >
+                            {processing ? '處理中...' : '更新菜單'}
+                        </button>
+                        <input 
+                            type="file" 
+                            ref={fileInputRef}
+                            className="hidden" 
+                            accept="image/*" 
+                            onChange={handleFileChange} 
+                            disabled={processing} 
+                        />
                     </div>
-                    <div className="h-48 bg-slate-50 flex items-center justify-center">
+                    <div className="h-48 bg-slate-50 flex flex-col items-center justify-center p-2 relative group">
                         {img ? (
-                            <img src={img} className="w-full h-full object-cover cursor-zoom-in" onClick={() => window.open().document.write(`<img src="${img}">`)} />
+                            <div className="w-full h-full relative cursor-zoom-in" onClick={() => onImageClick(img)}>
+                                <img src={img} className="w-full h-full object-cover rounded-xl border border-slate-100" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-xl">
+                                    <span className="text-white text-xs font-bold bg-slate-900/80 px-3 py-1.5 rounded-full">🔍 點擊展開放大鏡</span>
+                                </div>
+                            </div>
                         ) : (
-                            <div className="text-xs text-slate-300 font-bold italic">尚未上傳菜單</div>
+                            <div 
+                                className="text-xs text-slate-400 font-bold italic text-center cursor-pointer p-4 border border-dashed border-slate-300 w-full h-full flex flex-col items-center justify-center rounded-xl"
+                                onClick={() => fileInputRef.current.click()}
+                            >
+                                <span className="text-xl mb-1">📸</span>
+                                點此上傳、拖曳圖片
+                                <br />或直接在此處貼上(Ctrl+V)
+                            </div>
                         )}
                     </div>
                 </div>
