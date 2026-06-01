@@ -4,7 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>辦公室訂餐系統小幫手</title>
+    <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React 18 & Babel CDN -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -25,14 +27,14 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- Firebase 金鑰設定（若無設定，系統亦可正常儲存菜單與資料至本機） ---
+        // --- Firebase 金鑰設定（請在此填入您申請到的金鑰） ---
         const firebaseConfig = {
-            apiKey: "AIzaSyBV3Xc4s32gMeDRA1euwDBJ3qz2t0rLiAY",
-            authDomain: "order-c3529.firebaseapp.com",
-            projectId: "order-c3529",
-            storageBucket: "order-c3529.firebasestorage.app",
-            messagingSenderId: "700659521697",
-            appId: "1:700659521697:web:e94b9f712409e4c57c38e0"
+            apiKey: "您的_API_KEY",
+            authDomain: "您的_PROJECT_ID.firebaseapp.com",
+            projectId: "您的_PROJECT_ID",
+            storageBucket: "您的_PROJECT_ID.appspot.com",
+            messagingSenderId: "您的_SENDER_ID",
+            appId: "您的_APP_ID"
         };
 
         const appId = "ntuyun-psych-order-v1";
@@ -107,7 +109,7 @@
                 setTimeout(() => setCopyStatus(null), 2500);
 
                 // 同步至 Firebase
-                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY" && window.firebase) {
                     firebase.firestore().collection('settings').doc(appId).set({ deadline: timeVal }, { merge: true })
                         .catch(err => {
                             console.warn("寫入設定失敗，啟用本機設定備份", err);
@@ -123,7 +125,7 @@
                 setCopyStatus("⏹️ 已中止倒數計時！");
                 setTimeout(() => setCopyStatus(null), 2500);
 
-                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY" && window.firebase) {
                     firebase.firestore().collection('settings').doc(appId).set({ deadline: null }, { merge: true })
                         .catch(err => {
                             console.warn("取消截止失敗，已轉用本機處理", err);
@@ -133,23 +135,35 @@
             };
 
             const handleResetAll = async () => {
-                // 1. 強制重置本地狀態與本地快取
-                setSettings(prev => ({ 
-                    ...prev, 
-                    deadline: null 
-                }));
+                // 1. 強制重置本地狀態與本地所有快取 (包含圖片與連結)
+                setSettings({ 
+                    beverageMenu: null, 
+                    mealMenu: null, 
+                    deadline: null,
+                    beverageLink: '',
+                    mealLink: ''
+                });
                 setOrders([]);
                 localStorage.removeItem('fallback_deadline');
                 localStorage.removeItem('fallback_orders');
+                localStorage.removeItem('local_beverage_menu');
+                localStorage.removeItem('local_meal_menu');
+                localStorage.removeItem('local_beverageLink');
+                localStorage.removeItem('local_mealLink');
 
-                // 2. 雲端同步重置 (若有啟用雲端且非本機唯讀模式)
-                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                // 2. 雲端同步重置 (包含將菜單與連結欄位清空)
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY" && window.firebase) {
                     try {
                         const db = firebase.firestore();
-                        // 移除截止時間設定
-                        await db.collection('settings').doc(appId).set({ deadline: null }, { merge: true });
-                        
-                        // 批次刪除該專案名下的所有訂單
+                        await db.collection('settings').doc(appId).set({ 
+                            deadline: null,
+                            beverageMenu: null,
+                            mealMenu: null,
+                            beverageLink: '',
+                            mealLink: ''
+                        }, { merge: true });
+
+                        // 刪除該專案底下的所有訂單
                         const snapshot = await db.collection('orders').where('appId', '==', appId).get();
                         const batch = db.batch();
                         snapshot.docs.forEach(doc => {
@@ -162,8 +176,35 @@
                 }
 
                 setShowResetConfirm(false);
-                setCopyStatus("🧹 今日訂單與倒數時間已成功清空！");
+                setCopyStatus("🧹 今日訂單、菜單圖片與連結已成功完全清空！");
                 setTimeout(() => setCopyStatus(null), 3000);
+            };
+
+            const handleClearMenu = async (type) => {
+                const menuKey = type === 'beverage' ? 'beverageMenu' : 'mealMenu';
+                const linkKey = type === 'beverage' ? 'beverageLink' : 'mealLink';
+                
+                setSettings(prev => ({
+                    ...prev,
+                    [menuKey]: null,
+                    [linkKey]: ''
+                }));
+                localStorage.removeItem(`local_${type}_menu`);
+                localStorage.removeItem(`local_${linkKey}`);
+
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY" && window.firebase) {
+                    try {
+                        await firebase.firestore().collection('settings').doc(appId).set({
+                            [menuKey]: null,
+                            [linkKey]: ''
+                        }, { merge: true });
+                    } catch (err) {
+                        console.warn("清除雲端菜單失敗，僅由本地清除:", err);
+                    }
+                }
+
+                setCopyStatus(`🗑️ 已成功清除${type === 'beverage' ? '飲料' : '餐點'}菜單與連結！`);
+                setTimeout(() => setCopyStatus(null), 2500);
             };
 
             const formatTimeLeft = () => {
@@ -179,7 +220,7 @@
             };
 
             useEffect(() => {
-                // 本地優先讀取菜單與連結快取
+                // 本地優先讀取快取
                 const localBevMenu = localStorage.getItem('local_beverage_menu');
                 const localMealMenu = localStorage.getItem('local_meal_menu');
                 const localBevLink = localStorage.getItem('local_beverageLink');
@@ -193,8 +234,8 @@
                     mealLink: localMealLink || ''
                 }));
 
-                if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "您的_API_KEY") {
-                    switchToLocalMode("尚未配置 Firebase 金鑰");
+                if (typeof window.firebase === 'undefined' || !firebaseConfig.apiKey || firebaseConfig.apiKey === "您的_API_KEY") {
+                    switchToLocalMode("尚未配置有效 Firebase 金鑰");
                     return;
                 }
 
@@ -205,12 +246,10 @@
                     const db = firebase.firestore();
                     const auth = firebase.auth();
 
-                    // 1. 匿名登入
                     auth.signInAnonymously()
                         .then((u) => {
                             setUser(u.user);
                             
-                            // 2. 監聽線上訂單
                             db.collection('orders').where('appId', '==', appId)
                                 .onSnapshot(snapshot => {
                                     setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -220,7 +259,6 @@
                                     switchToLocalMode("Firebase 讀取失敗 (可能為 Rules 權限不足)。已自動切換至「本機暫存模式」，您可以照常使用！");
                                 });
 
-                            // 3. 監聽線上設定
                             db.collection('settings').doc(appId)
                                 .onSnapshot(doc => {
                                     if (doc.exists) {
@@ -228,10 +266,10 @@
                                         setSettings(prev => ({
                                             ...prev,
                                             ...onlineData,
-                                            beverageMenu: onlineData.beverageMenu || prev.beverageMenu,
-                                            mealMenu: onlineData.mealMenu || prev.mealMenu,
-                                            beverageLink: onlineData.beverageLink || prev.beverageLink || '',
-                                            mealLink: onlineData.mealLink || prev.mealLink || ''
+                                            beverageMenu: onlineData.beverageMenu !== undefined ? onlineData.beverageMenu : prev.beverageMenu,
+                                            mealMenu: onlineData.mealMenu !== undefined ? onlineData.mealMenu : prev.mealMenu,
+                                            beverageLink: onlineData.beverageLink !== undefined ? onlineData.beverageLink : (prev.beverageLink || ''),
+                                            mealLink: onlineData.mealLink !== undefined ? onlineData.mealLink : (prev.mealLink || '')
                                         }));
                                     }
                                 }, err => {
@@ -273,7 +311,6 @@
                 return () => clearInterval(timer);
             }, []);
 
-            // 全域鍵盤貼上事件監聽 (可讓使用者直接在網頁上貼上螢幕截圖 Ctrl+V)
             useEffect(() => {
                 const handleGlobalPaste = async (e) => {
                     const items = e.clipboardData?.items;
@@ -303,7 +340,7 @@
                             const canvas = document.createElement('canvas');
                             let width = img.width;
                             let height = img.height;
-                            const MAX_WIDTH = 1600; // 升級高清晰度
+                            const MAX_WIDTH = 1600;
                             if (width > MAX_WIDTH) {
                                 height = (MAX_WIDTH / width) * height;
                                 width = MAX_WIDTH;
@@ -312,7 +349,6 @@
                             canvas.height = height;
                             const ctx = canvas.getContext('2d');
                             ctx.drawImage(img, 0, 0, width, height);
-                            // 保持 0.8 超高解析度品質，符合 1MB 限制
                             resolve(canvas.toDataURL('image/jpeg', 0.8));
                         };
                     };
@@ -325,15 +361,13 @@
                 try {
                     const compressedBase64 = await compressImage(file);
                     
-                    // 1. 同步保存至本地
                     localStorage.setItem(`local_${type}_menu`, compressedBase64);
                     setSettings(prev => ({
                         ...prev,
                         [type === 'beverage' ? 'beverageMenu' : 'mealMenu']: compressedBase64
                     }));
 
-                    // 2. 如果已連接 Firebase 且無報錯，則存入雲端
-                    if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                    if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY" && window.firebase) {
                         await firebase.firestore().collection('settings').doc(appId).set({
                             [type === 'beverage' ? 'beverageMenu' : 'mealMenu']: compressedBase64
                         }, { merge: true }).catch(err => {
@@ -350,12 +384,10 @@
             const handleLinkChange = async (val, type) => {
                 const key = type === 'beverage' ? 'beverageLink' : 'mealLink';
                 
-                // 1. 同步更新本地端
                 setSettings(prev => ({ ...prev, [key]: val }));
                 localStorage.setItem(`local_${key}`, val);
 
-                // 2. 同步寫入雲端 (若有啟用雲端)
-                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY" && window.firebase) {
                     try {
                         await firebase.firestore().collection('settings').doc(appId).set({
                             [key]: val
@@ -380,8 +412,7 @@
                     isPaid: false
                 };
 
-                // 線上模式
-                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY" && window.firebase) {
                     try {
                         await firebase.firestore().collection('orders').add(orderData);
                     } catch (err) { 
@@ -410,7 +441,7 @@
                     quantity: Number(editingOrder.quantity) || 1
                 };
 
-                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY" && window.firebase) {
                     try {
                         await firebase.firestore().collection('orders').doc(editingOrder.id).update(updateData);
                     } catch (err) { 
@@ -424,7 +455,7 @@
             };
 
             const handleDeleteOrder = async (orderId) => {
-                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY" && window.firebase) {
                     try {
                         await firebase.firestore().collection('orders').doc(orderId).delete();
                     } catch (err) { 
@@ -437,7 +468,7 @@
             };
 
             const handleTogglePaid = async (orderId, currentPaid) => {
-                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY" && window.firebase) {
                     try {
                         await firebase.firestore().collection('orders').doc(orderId).update({ isPaid: !currentPaid });
                     } catch (err) { 
@@ -617,7 +648,6 @@
                             </div>
                         )}
 
-                        {}
                         {/* 控制工具列 */}
                         <section className="bg-white p-4 rounded-3xl shadow-sm border border-slate-200 flex flex-wrap gap-4 items-center justify-between">
                             <div className="flex flex-wrap items-center gap-3">
@@ -646,7 +676,7 @@
                                 </div>
                                 {settings.deadline && (
                                     <div className="flex items-center gap-2">
-                                        <button onClick={handleCancelDeadline} className="bg-rose-500 hover:bg-rose-600 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-md active:scale-95 transition-all">
+                                        <button onClick={handleCancelDeadline} className="bg-rose-50 hover:bg-rose-600 text-white px-4 py-2.5 rounded-2xl text-xs font-black shadow-md active:scale-95 transition-all">
                                             ⏹️ 中止倒數 (取消截止)
                                         </button>
                                         <div className={`px-3 py-2.5 rounded-2xl text-xs font-black sm:hidden ${isExpired ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600 animate-pulse'}`}>
@@ -679,7 +709,6 @@
                             <StatCard label="付款進度" value={`${orders.filter(o=>o.isPaid).reduce((sum, o)=>sum+(o.quantity||1), 0)}/${stats.totalCount}`} color="emerald" />
                         </div>
 
-                        {}
                         <div className="flex flex-col md:flex-row gap-6">
                             {/* 左側菜單區 */}
                             <div className="md:w-1/3 space-y-4">
@@ -690,6 +719,7 @@
                                     link={settings.beverageLink || ''}
                                     onUpload={(file) => handleImageProcess(file, 'beverage')} 
                                     onLinkChange={(val) => handleLinkChange(val, 'beverage')}
+                                    onClear={() => handleClearMenu('beverage')}
                                     processing={isProcessingImage} 
                                     onImageClick={openLightbox}
                                 />
@@ -700,6 +730,7 @@
                                     link={settings.mealLink || ''}
                                     onUpload={(file) => handleImageProcess(file, 'meal')} 
                                     onLinkChange={(val) => handleLinkChange(val, 'meal')}
+                                    onClear={() => handleClearMenu('meal')}
                                     processing={isProcessingImage} 
                                     onImageClick={openLightbox}
                                 />
@@ -712,7 +743,6 @@
                                 </div>
                             </div>
 
-                            {}
                             {/* 右側訂單區 */}
                             <div className="flex-1 space-y-4">
                                 <div className="flex bg-slate-200 p-1.5 rounded-2xl w-fit">
@@ -815,7 +845,6 @@
                             </div>
                         </div>
 
-                        {}
                         {/* 彙整統計摘要 */}
                         <section className="bg-white p-6 rounded-3xl border border-slate-200">
                             <h3 className="font-black text-slate-700 mb-5 flex items-center gap-2">📊 彙整統計摘要</h3>
@@ -834,7 +863,6 @@
                         </section>
                     </main>
 
-                    {}
                     {/* 菜單放大縮小燈箱 */}
                     {lightboxImg && (
                         <div className="fixed inset-0 bg-slate-900/95 backdrop-blur-sm z-50 flex flex-col items-center justify-center p-4">
@@ -874,7 +902,6 @@
                         </div>
                     )}
 
-                    {}
                     {/* 修改訂單彈出視窗 */}
                     {editingOrder && (
                         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
@@ -936,7 +963,6 @@
                         </div>
                     )}
 
-                    {}
                     {/* 自定義安全清空確認視窗 */}
                     {showResetConfirm && (
                         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -947,7 +973,7 @@
                                     </div>
                                     <h3 className="text-lg font-black text-slate-800">確定要重新清空今日資料嗎？</h3>
                                     <p className="text-xs text-slate-500 leading-relaxed">
-                                        此動作將會<strong className="text-rose-600 font-bold">永久刪除</strong>目前系統中的所有訂單，並<strong className="text-rose-600 font-bold">重置倒數時間</strong>。此操作無法復原，請確認大家都已經確認好訂單或匯出備份！
+                                        此動作將會<strong className="text-rose-600 font-bold">永久刪除</strong>目前系統中的所有訂單，並<strong className="text-rose-600 font-bold">完全清空菜單圖片、菜單官網連結、以及倒數時間</strong>。此操作無法復原，請確認大家都已經確認好訂單或匯出備份！
                                     </p>
                                 </div>
                                 <div className="flex gap-3 justify-center pt-2">
@@ -963,7 +989,7 @@
                                         onClick={handleResetAll} 
                                         className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black transition-all shadow-md shadow-rose-100"
                                     >
-                                        確定清空
+                                        確定完全清空
                                     </button>
                                 </div>
                             </div>
@@ -990,8 +1016,7 @@
             );
         }
 
-        {}
-        function MenuBox({ title, type, img, link, onUpload, onLinkChange, processing, onImageClick }) {
+        function MenuBox({ title, type, img, link, onUpload, onLinkChange, onClear, processing, onImageClick }) {
             const [isDragOver, setIsDragOver] = useState(false);
             const fileInputRef = useRef(null);
 
@@ -1029,13 +1054,25 @@
                 >
                     <div className="p-4 bg-slate-50 border-b flex justify-between items-center">
                         <span className="text-xs font-black text-slate-600">{title}</span>
-                        <button 
-                            type="button"
-                            onClick={() => fileInputRef.current.click()}
-                            className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-xl cursor-pointer font-black shadow-md shadow-blue-100 transition-colors"
-                        >
-                            {processing ? '處理中...' : '更新菜單'}
-                        </button>
+                        <div className="flex gap-2">
+                            {/* 清除按鈕：只有在已存在圖片時顯示 */}
+                            {img && (
+                                <button
+                                    type="button"
+                                    onClick={onClear}
+                                    className="text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-100 px-3 py-1.5 rounded-xl font-bold transition-all"
+                                >
+                                    🗑️ 清除
+                                </button>
+                            )}
+                            <button 
+                                type="button"
+                                onClick={() => fileInputRef.current.click()}
+                                className="text-[10px] bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-xl cursor-pointer font-black shadow-md shadow-blue-100 transition-colors"
+                            >
+                                {processing ? '處理中...' : '更新菜單'}
+                            </button>
+                        </div>
                         <input 
                             type="file" 
                             ref={fileInputRef}
