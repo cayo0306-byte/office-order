@@ -17,7 +17,6 @@
         body { font-family: 'Inter', 'Microsoft JhengHei', sans-serif; background-color: #f8fafc; }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .drag-active { border-color: #2563eb !important; background-color: #eff6ff !important; }
     </style>
 </head>
 <body>
@@ -44,7 +43,13 @@
         function App() {
             const [user, setUser] = useState(null);
             const [orders, setOrders] = useState([]);
-            const [settings, setSettings] = useState({ beverageMenu: null, mealMenu: null, deadline: null });
+            const [settings, setSettings] = useState({ 
+                beverageMenu: null, 
+                mealMenu: null, 
+                deadline: null,
+                beverageLink: '',
+                mealLink: ''
+            });
             const [activeTab, setActiveTab] = useState('beverage');
             const [loading, setLoading] = useState(true);
             const [errorMsg, setErrorMsg] = useState(null);
@@ -56,7 +61,7 @@
             const [isProcessingImage, setIsProcessingImage] = useState(false);
             const [usingLocalStorage, setUsingLocalStorage] = useState(false);
             const [editingOrder, setEditingOrder] = useState(null);
-            const [showResetConfirm, setShowResetConfirm] = useState(false); // 重置確認彈窗狀態
+            const [showResetConfirm, setShowResetConfirm] = useState(false); 
 
             // 菜單燈箱放大縮小與拖曳狀態
             const [lightboxImg, setLightboxImg] = useState(null);
@@ -127,15 +132,17 @@
                 }
             };
 
-            // 全面清空重置今日資料
             const handleResetAll = async () => {
-                // 1. 本地狀態重置
-                setSettings(prev => ({ ...prev, deadline: null }));
+                // 1. 強制重置本地狀態與本地快取
+                setSettings(prev => ({ 
+                    ...prev, 
+                    deadline: null 
+                }));
                 setOrders([]);
                 localStorage.removeItem('fallback_deadline');
                 localStorage.removeItem('fallback_orders');
 
-                // 2. 雲端同步重置 (若有啟用雲端)
+                // 2. 雲端同步重置 (若有啟用雲端且非本機唯讀模式)
                 if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
                     try {
                         const db = firebase.firestore();
@@ -150,7 +157,7 @@
                         });
                         await batch.commit();
                     } catch (err) {
-                        console.warn("雲端資料清空失敗，改為本地完全清空", err);
+                        console.warn("雲端資料清空失敗，系統自動保持於本地完全清空狀態", err);
                     }
                 }
 
@@ -172,16 +179,19 @@
             };
 
             useEffect(() => {
-                // 本地優先讀取菜單
+                // 本地優先讀取菜單與連結快取
                 const localBevMenu = localStorage.getItem('local_beverage_menu');
                 const localMealMenu = localStorage.getItem('local_meal_menu');
-                if (localBevMenu || localMealMenu) {
-                    setSettings(prev => ({
-                        ...prev,
-                        beverageMenu: localBevMenu || prev.beverageMenu,
-                        mealMenu: localMealMenu || prev.mealMenu
-                    }));
-                }
+                const localBevLink = localStorage.getItem('local_beverageLink');
+                const localMealLink = localStorage.getItem('local_mealLink');
+                
+                setSettings(prev => ({
+                    ...prev,
+                    beverageMenu: localBevMenu || prev.beverageMenu,
+                    mealMenu: localMealMenu || prev.mealMenu,
+                    beverageLink: localBevLink || '',
+                    mealLink: localMealLink || ''
+                }));
 
                 if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "您的_API_KEY") {
                     switchToLocalMode("尚未配置 Firebase 金鑰");
@@ -219,7 +229,9 @@
                                             ...prev,
                                             ...onlineData,
                                             beverageMenu: onlineData.beverageMenu || prev.beverageMenu,
-                                            mealMenu: onlineData.mealMenu || prev.mealMenu
+                                            mealMenu: onlineData.mealMenu || prev.mealMenu,
+                                            beverageLink: onlineData.beverageLink || prev.beverageLink || '',
+                                            mealLink: onlineData.mealLink || prev.mealLink || ''
                                         }));
                                     }
                                 }, err => {
@@ -291,7 +303,7 @@
                             const canvas = document.createElement('canvas');
                             let width = img.width;
                             let height = img.height;
-                            const MAX_WIDTH = 800; // 降低解析度以確保上傳順暢
+                            const MAX_WIDTH = 1600; // 升級高清晰度
                             if (width > MAX_WIDTH) {
                                 height = (MAX_WIDTH / width) * height;
                                 width = MAX_WIDTH;
@@ -300,7 +312,8 @@
                             canvas.height = height;
                             const ctx = canvas.getContext('2d');
                             ctx.drawImage(img, 0, 0, width, height);
-                            resolve(canvas.toDataURL('image/jpeg', 0.5));
+                            // 保持 0.8 超高解析度品質，符合 1MB 限制
+                            resolve(canvas.toDataURL('image/jpeg', 0.8));
                         };
                     };
                 });
@@ -331,6 +344,25 @@
                     console.error("圖片處理失敗", err);
                 } finally {
                     setIsProcessingImage(false);
+                }
+            };
+
+            const handleLinkChange = async (val, type) => {
+                const key = type === 'beverage' ? 'beverageLink' : 'mealLink';
+                
+                // 1. 同步更新本地端
+                setSettings(prev => ({ ...prev, [key]: val }));
+                localStorage.setItem(`local_${key}`, val);
+
+                // 2. 同步寫入雲端 (若有啟用雲端)
+                if (!usingLocalStorage && firebaseConfig.apiKey && firebaseConfig.apiKey !== "您的_API_KEY") {
+                    try {
+                        await firebase.firestore().collection('settings').doc(appId).set({
+                            [key]: val
+                        }, { merge: true });
+                    } catch (err) {
+                        console.warn("設定連結失敗，改由本地快取保存", err);
+                    }
                 }
             };
 
@@ -628,7 +660,7 @@
                                     onClick={() => setShowResetConfirm(true)} 
                                     className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 px-4 py-2 rounded-2xl text-xs font-black active:scale-95 transition-all flex items-center gap-1"
                                 >
-                                    🧹 重新清空
+                                    🧹 重新清空當日資料
                                 </button>
                                 <button 
                                     onClick={() => copyResult(activeTab)} 
@@ -647,28 +679,35 @@
                             <StatCard label="付款進度" value={`${orders.filter(o=>o.isPaid).reduce((sum, o)=>sum+(o.quantity||1), 0)}/${stats.totalCount}`} color="emerald" />
                         </div>
 
+                        {}
                         <div className="flex flex-col md:flex-row gap-6">
                             {/* 左側菜單區 */}
                             <div className="md:w-1/3 space-y-4">
                                 <MenuBox 
                                     title="🥤 飲料菜單" 
+                                    type="beverage"
                                     img={settings.beverageMenu} 
+                                    link={settings.beverageLink || ''}
                                     onUpload={(file) => handleImageProcess(file, 'beverage')} 
+                                    onLinkChange={(val) => handleLinkChange(val, 'beverage')}
                                     processing={isProcessingImage} 
                                     onImageClick={openLightbox}
                                 />
                                 <MenuBox 
                                     title="🍱 餐點菜單" 
+                                    type="meal"
                                     img={settings.mealMenu} 
+                                    link={settings.mealLink || ''}
                                     onUpload={(file) => handleImageProcess(file, 'meal')} 
+                                    onLinkChange={(val) => handleLinkChange(val, 'meal')}
                                     processing={isProcessingImage} 
                                     onImageClick={openLightbox}
                                 />
                                 <div className="bg-blue-50 border border-blue-200 rounded-2xl p-3 text-xs text-blue-700 font-bold space-y-1">
                                     <p>💡 實用小秘訣：</p>
                                     <ul className="list-disc pl-4 space-y-1">
-                                        <li>在網頁直接按 <b>Ctrl + V</b> 可以直接上傳貼上您的截圖！</li>
-                                        <li>點擊菜單縮圖可開啟<b>高畫質無損放大鏡模式</b>，方便比對小字。</li>
+                                        <li>在網頁直接按 <b>Ctrl + V</b> 可以直接貼上您的菜單截圖！</li>
+                                        <li>貼上官方菜單網域連結（如店鋪FB或官網），即可點擊按鈕直接在新分頁看高清晰原圖。</li>
                                     </ul>
                                 </div>
                             </div>
@@ -691,7 +730,7 @@
 
                                     {/* 新增訂單表單 */}
                                     {isAdding && (
-                                        <form onSubmit={handleAddOrder} className="p-6 bg-blue-50 border-b grid grid-cols-2 md:grid-cols-4 gap-3">
+                                        <form onSubmit={handleAddOrder} className="p-6 bg-blue-50 border-b grid grid-cols-2 md:grid-cols-4 gap-3 animate-fade-in">
                                             <input type="text" placeholder="姓名" className="p-3 rounded-xl border text-sm" value={newOrder.name} onChange={e => setNewOrder({...newOrder, name: e.target.value})} required />
                                             <input type="text" placeholder={activeTab === 'beverage' ? "品項" : "餐點內容"} className="p-3 rounded-xl border text-sm" value={newOrder.item} onChange={e => setNewOrder({...newOrder, item: e.target.value})} required />
                                             {activeTab === 'beverage' ? (
@@ -776,6 +815,7 @@
                             </div>
                         </div>
 
+                        {}
                         {/* 彙整統計摘要 */}
                         <section className="bg-white p-6 rounded-3xl border border-slate-200">
                             <h3 className="font-black text-slate-700 mb-5 flex items-center gap-2">📊 彙整統計摘要</h3>
@@ -834,9 +874,10 @@
                         </div>
                     )}
 
+                    {}
                     {/* 修改訂單彈出視窗 */}
                     {editingOrder && (
-                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in">
                             <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-100 p-6 space-y-4 transform transition-all">
                                 <div className="flex justify-between items-center border-b pb-3">
                                     <h3 className="text-lg font-black text-slate-800">✏️ 修改訂單資料</h3>
@@ -895,7 +936,8 @@
                         </div>
                     )}
 
-                    {/* 自定義安全清空重置確認視窗 (代替 confirm) */}
+                    {}
+                    {/* 自定義安全清空確認視窗 */}
                     {showResetConfirm && (
                         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
                             <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-100 p-6 space-y-4 transform transition-all animate-fade-in">
@@ -948,7 +990,8 @@
             );
         }
 
-        function MenuBox({ title, img, onUpload, processing, onImageClick }) {
+        {}
+        function MenuBox({ title, type, img, link, onUpload, onLinkChange, processing, onImageClick }) {
             const [isDragOver, setIsDragOver] = useState(false);
             const fileInputRef = useRef(null);
 
@@ -1002,7 +1045,9 @@
                             disabled={processing} 
                         />
                     </div>
-                    <div className="h-48 bg-slate-50 flex flex-col items-center justify-center p-2 relative group">
+                    
+                    {/* 圖片預覽區 */}
+                    <div className="h-48 bg-slate-50 flex flex-col items-center justify-center p-2 relative group border-b">
                         {img ? (
                             <div className="w-full h-full relative cursor-zoom-in" onClick={() => onImageClick(img)}>
                                 <img src={img} className="w-full h-full object-cover rounded-xl border border-slate-100" />
@@ -1020,6 +1065,29 @@
                                 <br />或直接在此處貼上(Ctrl+V)
                             </div>
                         )}
+                    </div>
+
+                    {/* 官網菜單外連功能 */}
+                    <div className="p-3 bg-white space-y-2">
+                        <div className="flex gap-2">
+                            <input 
+                                type="text"
+                                placeholder="🔗 貼上官網/相簿菜單連結..."
+                                className="flex-1 text-xs p-2 border border-slate-200 rounded-xl focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                                value={link}
+                                onChange={(e) => onLinkChange(e.target.value)}
+                            />
+                            {link && link.trim() !== '' && (
+                                <a 
+                                    href={link.startsWith('http') ? link : `https://${link}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center transition-all shrink-0"
+                                >
+                                    🌐 開啟
+                                </a>
+                            )}
+                        </div>
                     </div>
                 </div>
             );
